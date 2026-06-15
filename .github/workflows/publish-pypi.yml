@@ -4,22 +4,50 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the validated artifacts to PyPI"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install build backend
-        run: python -m pip install build
+          cache: pip
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
       - name: Build distributions
         run: python -m build
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gaia-lsp-dist
+          path: dist/*
+
+  publish:
+    needs: build
+    if: github.event_name == 'release' || inputs.publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download distribution artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gaia-lsp-dist
+          path: dist
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

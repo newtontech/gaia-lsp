@@ -8,6 +8,7 @@ must not run author code just to find obvious DSL mistakes.
 from __future__ import annotations
 
 import ast
+import importlib
 import json
 import math
 import re
@@ -16,9 +17,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
-    import tomllib  # type: ignore[import-untyped]
+    tomllib = importlib.import_module("tomllib")
 except ImportError:  # pragma: no cover - exercised on Python < 3.11
-    import tomli as tomllib  # type: ignore[import-not-found]
+    tomllib = importlib.import_module("tomli")
 
 from .diagnostics import Diagnostic, diagnostic
 from .rules import (
@@ -1119,7 +1120,7 @@ def _check_package_structure(root: Path) -> tuple[dict[str, Any], Path | None, l
         return {}, None, []
     try:
         config = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
+    except Exception as exc:
         return {}, None, [
             _path_diagnostic(
                 "GAIA063",

@@ -8,7 +8,7 @@ from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
 from . import __version__
-from .analyzer import analyze_text, completion_items, hover_at
+from .analyzer import analyze_text, completion_items, document_symbols, hover_at
 from .diagnostics import Diagnostic
 
 SERVER_NAME = "gaia-lsp"
@@ -63,16 +63,22 @@ def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
         TEXT_DOCUMENT_COMPLETION,
         TEXT_DOCUMENT_DID_CHANGE,
         TEXT_DOCUMENT_DID_OPEN,
+        TEXT_DOCUMENT_DOCUMENT_SYMBOL,
         TEXT_DOCUMENT_HOVER,
         CompletionItem,
         CompletionList,
         CompletionParams,
         DidChangeTextDocumentParams,
         DidOpenTextDocumentParams,
+        DocumentSymbol,
+        DocumentSymbolParams,
         Hover,
         HoverParams,
         MarkupContent,
         MarkupKind,
+        Position,
+        Range,
+        SymbolKind,
     )
 
     language_server = _load_language_server()(name, version)
@@ -125,6 +131,29 @@ def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
         if not contents:
             return None
         return Hover(contents=MarkupContent(kind=MarkupKind.Markdown, value=contents))
+
+    @_register(language_server, TEXT_DOCUMENT_DOCUMENT_SYMBOL)
+    def document_symbol(params: DocumentSymbolParams) -> list[DocumentSymbol]:
+        uri = params.text_document.uri
+        text = language_server.documents_cache.get(uri, "")  # type: ignore[attr-defined]
+        out: list[DocumentSymbol] = []
+        for item in document_symbols(text):
+            line = max(int(item["line"]) - 1, 0)
+            character = max(int(item["column"]) - 1, 0)
+            symbol_range = Range(
+                start=Position(line=line, character=character),
+                end=Position(line=line, character=character + max(len(item["name"]), 1)),
+            )
+            out.append(
+                DocumentSymbol(
+                    name=item["name"],
+                    detail=item["kind"],
+                    kind=SymbolKind.Variable,
+                    range=symbol_range,
+                    selection_range=symbol_range,
+                )
+            )
+        return out
 
     return language_server
 

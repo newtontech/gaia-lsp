@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .analyzer import analyze_path, completion_items, document_symbols, hover_at
+from .rules import rule_catalog
 
 SOFTWARE = "gaia"
 
@@ -91,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("path", type=Path)
         sub.add_argument("--format", choices=["json"], default="json")
 
+    rules = subparsers.add_parser("rules")
+    rules.add_argument("--format", choices=["json"], default="json")
+
     hover = subparsers.add_parser("hover")
     hover.add_argument("path", type=Path)
     hover.add_argument("--line", type=int, default=0)
@@ -120,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.operation == "hover":
         _print_json(hover_path(args.path, args.line, args.character))
+        return 0
+    if args.operation == "rules":
+        _print_json(rule_catalog())
         return 0
     if args.operation == "symbols":
         _print_json(symbols_path(args.path))

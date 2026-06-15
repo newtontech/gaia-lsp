@@ -185,4 +185,4 @@ def test_missing_or_malformed_references_json_keeps_refs_unresolved(tmp_path: Pa
 
     diagnostics = analyze_path(sample)
 
-    assert [item.code for item in diagnostics] == ["GAIA050"]
+    assert {item.code for item in diagnostics} == {"GAIA050", "GAIA067"}

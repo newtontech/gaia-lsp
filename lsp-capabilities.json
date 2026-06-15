@@ -33,6 +33,7 @@
     "openqc-context",
     "references",
     "rich-diagnostics",
+    "rule-catalog",
     "routing",
     "source-provenance",
     "symbols"
@@ -60,6 +61,7 @@
       "context",
       "complete",
       "hover",
+      "rules",
       "symbols"
     ],
     "jsonFormat": true,
@@ -92,7 +94,8 @@
       "id": "gaia-upstream",
       "kind": "upstream_repo",
       "label": "SiliconEinstein/Gaia",
-      "url": "https://github.com/SiliconEinstein/Gaia"
+      "url": "https://github.com/SiliconEinstein/Gaia",
+      "commit": "6354a3425fdadcf6f7e5f557dd3bc30f36d3297e"
     },
     {
       "id": "gaia-language-reference",
@@ -101,10 +104,10 @@
       "url": "https://github.com/SiliconEinstein/Gaia/blob/main/docs/for-users/language-reference.md"
     },
     {
-      "id": "gaia-galileo-example",
+      "id": "gaia-mendel-example",
       "kind": "upstream_example",
-      "label": "Galileo v0.5 Gaia example",
-      "url": "https://github.com/SiliconEinstein/Gaia/tree/main/examples/galileo-v0-5-gaia"
+      "label": "Mendel v0.5 Gaia example",
+      "url": "https://github.com/SiliconEinstein/Gaia/tree/main/examples/mendel-v0-5-gaia"
     }
   ]
 }

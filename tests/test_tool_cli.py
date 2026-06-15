@@ -89,6 +89,11 @@ def test_tool_operations_emit_expected_json(tmp_path: Path, capsys) -> None:  # 
     assert main(["capabilities"]) == 0
     assert json.loads(capsys.readouterr().out)["id"] == "gaia-lsp"
 
+    assert main(["rules"]) == 0
+    rules = json.loads(capsys.readouterr().out)
+    assert rules["upstream"]["repository"] == "SiliconEinstein/Gaia"
+    assert any(item["label"] == "BetaBinomial" for item in rules["symbols"])
+
     assert main(["complete", str(sample)]) == 0
     assert json.loads(capsys.readouterr().out)["items"]
 

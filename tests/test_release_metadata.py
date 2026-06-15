@@ -30,4 +30,6 @@ def test_capabilities_manifest_matches_openqc_lsp_contract() -> None:
     assert manifest["software"] == "gaia"
     assert manifest["repository"] == "newtontech/gaia-lsp"
     assert manifest["agentCli"]["command"] == "gaia-lsp-tool"
+    assert "rules" in manifest["agentCli"]["operations"]
     assert "diagnostic-engine-v1" in manifest["capabilities"]
+    assert "rule-catalog" in manifest["capabilities"]

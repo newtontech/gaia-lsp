@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gaia-lsp"
+version = "0.1.0"
+description = "Language Server Protocol and CLI diagnostics for Gaia Lang Python DSL packages"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "newtontech" }]
+keywords = ["gaia", "lsp", "language-server", "scientific-reasoning", "dsl"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Text Editors :: Integrated Development Environments (IDE)",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "lsprotocol>=2023.0.0",
+    "mypy>=1.8,<2",
+    "pygls>=1.2.0,<2",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "twine>=5.0",
+]
+lsp = [
+    "pygls>=1.2.0,<2",
+    "lsprotocol>=2023.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/newtontech/gaia-lsp"
+Repository = "https://github.com/newtontech/gaia-lsp"
+Issues = "https://github.com/newtontech/gaia-lsp/issues"
+Source = "https://github.com/SiliconEinstein/Gaia"
+
+[project.scripts]
+gaia-lsp = "gaia_lsp.cli:lsp_main"
+gaia-lint = "gaia_lsp.cli:lint_main"
+gaia-lsp-tool = "gaia_lsp.tool:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gaia_lsp"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"lsp-capabilities.json" = "gaia_lsp/lsp-capabilities.json"
+"diagnostics/diagnostic-engine-v1.schema.json" = "gaia_lsp/diagnostic-engine-v1.schema.json"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov=src/gaia_lsp --cov-report=term-missing --cov-fail-under=80 -v"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/gaia_lsp/server.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+exclude = ["src/gaia_lsp/server.py"]

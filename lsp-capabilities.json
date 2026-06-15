@@ -1,0 +1,110 @@
+{
+  "schema": "OpenQCLspCapabilities",
+  "version": 1,
+  "id": "gaia-lsp",
+  "software": "gaia",
+  "displayName": "Gaia Lang",
+  "languageId": "python",
+  "repository": "newtontech/gaia-lsp",
+  "executable": "gaia-lsp",
+  "defaultBranch": "main",
+  "filePatterns": [
+    "pyproject.toml",
+    "references.json",
+    "src/**/*.py",
+    "**/*-gaia/src/**/*.py"
+  ],
+  "maturity": "alpha",
+  "blockingPolicy": {
+    "mode": "blocking",
+    "description": "Blocking diagnostics indicate Python syntax, invalid Gaia authoring calls, invalid priors, legacy prior dictionaries, or unresolved strict references."
+  },
+  "capabilities": [
+    "agent-envelope",
+    "agent-json-cli",
+    "blocking-gate",
+    "completion",
+    "context",
+    "diagnostic-engine-v1",
+    "diagnostics",
+    "hover",
+    "manifest",
+    "navigation",
+    "openqc-context",
+    "references",
+    "rich-diagnostics",
+    "routing",
+    "source-provenance",
+    "symbols"
+  ],
+  "standardLsp": {
+    "runtime": "pygls",
+    "protocolFamilies": [
+      "python",
+      "generic-lsp-client"
+    ],
+    "textDocument": [
+      "didOpen",
+      "didChange",
+      "diagnostic",
+      "completion",
+      "hover",
+      "documentSymbol"
+    ]
+  },
+  "agentCli": {
+    "command": "gaia-lsp-tool",
+    "operations": [
+      "capabilities",
+      "check",
+      "context",
+      "complete",
+      "hover",
+      "symbols"
+    ],
+    "jsonFormat": true,
+    "failOnBlocking": true
+  },
+  "diagnosticSchema": "diagnostics/diagnostic-engine-v1.schema.json",
+  "wikiPaths": {
+    "plan": "docs/LLM-WIKI-PLAN.md",
+    "rawAssets": "raw/assets",
+    "synthesis": "wiki/synthesis",
+    "index": "index.md",
+    "log": "log.md"
+  },
+  "fixturePaths": {
+    "valid": [
+      "tests/fixtures/valid"
+    ],
+    "invalid": [
+      "tests/fixtures/invalid"
+    ]
+  },
+  "openqc": {
+    "registryId": "gaia-lsp",
+    "repoName": "gaia-lsp",
+    "contextContract": "DSLAuthoringContext",
+    "diagnosticEnvelope": "DiagnosticEnvelope/v1"
+  },
+  "sourceProvenance": [
+    {
+      "id": "gaia-upstream",
+      "kind": "upstream_repo",
+      "label": "SiliconEinstein/Gaia",
+      "url": "https://github.com/SiliconEinstein/Gaia"
+    },
+    {
+      "id": "gaia-language-reference",
+      "kind": "official_docs",
+      "label": "Gaia v0.5 Language Reference",
+      "url": "https://github.com/SiliconEinstein/Gaia/blob/main/docs/for-users/language-reference.md"
+    },
+    {
+      "id": "gaia-galileo-example",
+      "kind": "upstream_example",
+      "label": "Galileo v0.5 Gaia example",
+      "url": "https://github.com/SiliconEinstein/Gaia/tree/main/examples/galileo-v0-5-gaia"
+    }
+  ]
+}

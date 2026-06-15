@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/newtontech/gaia-lsp/diagnostics/diagnostic-engine-v1.schema.json",
+  "title": "gaia-lsp Diagnostic Engine v1",
+  "type": "object",
+  "required": ["software", "operation", "ok", "diagnostics"],
+  "properties": {
+    "software": {"const": "gaia"},
+    "operation": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "severity", "range", "blocking"],
+        "properties": {
+          "code": {"type": "string"},
+          "message": {"type": "string"},
+          "severity": {"enum": ["error", "warning", "information", "hint"]},
+          "source": {"type": "string"},
+          "blocking": {"type": "boolean"},
+          "range": {"type": "object"}
+        }
+      }
+    }
+  }
+}

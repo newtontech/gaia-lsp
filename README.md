@@ -29,6 +29,26 @@ python3 -m pytest
 ruff check src tests
 ```
 
+## VS Code Extension
+
+The VS Code extension lives in `gaia-vscode/` and publishes as
+`newtontech.gaia-vscode`. It calls the same static `gaia-lsp-tool` JSON CLI and
+renders Gaia diagnostics in the Problems panel.
+
+Local package check:
+
+```bash
+cd gaia-vscode
+npm ci
+npm test
+npm run package
+```
+
+Marketplace publishing is configured in `.github/workflows/publish-vscode.yml`.
+Create the `newtontech` Marketplace publisher and configure the `VSCE_PAT`
+secret before running the publish job. See
+`docs/VSCODE_MARKETPLACE_PUBLISHING.md`.
+
 ## CLI
 
 Run file diagnostics:

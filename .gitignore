@@ -5,6 +5,9 @@
 .venv/
 build/
 dist/
+node_modules/
+out/
+*.vsix
 *.egg-info/
 __pycache__/
 *.py[cod]

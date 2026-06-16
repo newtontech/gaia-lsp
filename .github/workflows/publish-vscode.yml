@@ -1,0 +1,89 @@
+name: Publish VS Code Extension
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the validated VSIX to VS Code Marketplace"
+        required: true
+        type: boolean
+        default: false
+      preRelease:
+        description: "Publish/package as a VS Code pre-release extension"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gaia-vscode
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gaia-vscode/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Package VSIX
+        env:
+          PRE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.preRelease || false }}
+        run: |
+          if [ "${PRE_RELEASE}" = "true" ]; then
+            npx vsce package --githubBranch main --pre-release
+          else
+            npx vsce package --githubBranch main
+          fi
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: gaia-vscode-vsix
+          path: gaia-vscode/*.vsix
+
+  publish:
+    needs: package
+    if: (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'gaia-vscode-v')) || inputs.publish
+    runs-on: ubuntu-latest
+    environment: vscode-marketplace
+    defaults:
+      run:
+        working-directory: gaia-vscode
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: gaia-vscode/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          PRE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.preRelease || false }}
+        run: |
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "::error::VSCE_PAT secret is required to publish gaia-vscode."
+            exit 1
+          fi
+          if [ "${PRE_RELEASE}" = "true" ]; then
+            npx vsce publish --githubBranch main --pre-release --pat "${VSCE_PAT}"
+          else
+            npx vsce publish --githubBranch main --pat "${VSCE_PAT}"
+          fi

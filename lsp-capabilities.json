@@ -67,6 +67,19 @@
     "jsonFormat": true,
     "failOnBlocking": true
   },
+  "editorExtensions": [
+    {
+      "editor": "vscode",
+      "directory": "gaia-vscode",
+      "extensionId": "newtontech.gaia-vscode",
+      "marketplace": "https://marketplace.visualstudio.com/items?itemName=newtontech.gaia-vscode",
+      "commands": [
+        "gaia.lsp.checkFile",
+        "gaia.lsp.checkWorkspace",
+        "gaia.lsp.showRules"
+      ]
+    }
+  ],
   "diagnosticSchema": "diagnostics/diagnostic-engine-v1.schema.json",
   "wikiPaths": {
     "plan": "docs/LLM-WIKI-PLAN.md",

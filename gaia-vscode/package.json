@@ -1,0 +1,163 @@
+{
+  "name": "gaia-vscode",
+  "displayName": "Gaia LSP",
+  "description": "VS Code diagnostics for Gaia Lang Python DSL packages using gaia-lsp static checks.",
+  "version": "0.1.0",
+  "publisher": "newtontech",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "gaia",
+    "lsp",
+    "dsl",
+    "python",
+    "scientific-computing",
+    "diagnostics"
+  ],
+  "homepage": "https://github.com/newtontech/gaia-lsp/tree/main/gaia-vscode",
+  "bugs": {
+    "url": "https://github.com/newtontech/gaia-lsp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/newtontech/gaia-lsp.git",
+    "directory": "gaia-vscode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Gaia LSP diagnostics require running the configured local gaia-lsp-tool executable."
+    }
+  },
+  "activationEvents": [
+    "onLanguage:python",
+    "onCommand:gaia.lsp.checkFile",
+    "onCommand:gaia.lsp.checkWorkspace",
+    "onCommand:gaia.lsp.showRules"
+  ],
+  "main": "./out/src/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "lint": "tsc -p ./ --noEmit",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/test/*.test.js",
+    "package": "npm run compile && vsce package --githubBranch main",
+    "publish": "npm run compile && vsce publish --githubBranch main"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "gaia.lsp.checkFile",
+        "title": "Gaia LSP: Check Current File",
+        "category": "Gaia"
+      },
+      {
+        "command": "gaia.lsp.checkWorkspace",
+        "title": "Gaia LSP: Check Workspace",
+        "category": "Gaia"
+      },
+      {
+        "command": "gaia.lsp.showRules",
+        "title": "Gaia LSP: Show Rule Catalog",
+        "category": "Gaia"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "gaia.lsp.checkFile",
+          "when": "resourceLangId == python",
+          "group": "navigation@30"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "gaia.lsp.checkWorkspace",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gaia.lsp.checkFile"
+        },
+        {
+          "command": "gaia.lsp.checkWorkspace"
+        },
+        {
+          "command": "gaia.lsp.showRules"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Gaia LSP",
+      "properties": {
+        "gaiaLsp.toolPath": {
+          "type": "string",
+          "default": "gaia-lsp-tool",
+          "description": "Executable path for the gaia-lsp JSON CLI."
+        },
+        "gaiaLsp.toolArgs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional arguments inserted before the gaia-lsp-tool operation. Use this for wrappers such as uv run."
+        },
+        "gaiaLsp.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run Gaia static diagnostics when a candidate file is saved."
+        },
+        "gaiaLsp.checkOnOpen": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run Gaia static diagnostics when a candidate file is opened."
+        },
+        "gaiaLsp.failOnBlocking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Surface a VS Code error notification when blocking Gaia diagnostics are found."
+        },
+        "gaiaLsp.maxBufferMb": {
+          "type": "number",
+          "default": 16,
+          "minimum": 1,
+          "maximum": 256,
+          "description": "Maximum stdout/stderr buffer for gaia-lsp-tool invocations, in megabytes."
+        },
+        "gaiaLsp.trace": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages"
+          ],
+          "default": "off",
+          "description": "Write gaia-lsp command output details to the Gaia LSP output channel."
+        }
+      }
+    }
+  },
+  "galleryBanner": {
+    "color": "#172554",
+    "theme": "dark"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.8.3"
+  }
+}

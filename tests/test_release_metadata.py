@@ -33,3 +33,18 @@ def test_capabilities_manifest_matches_openqc_lsp_contract() -> None:
     assert "rules" in manifest["agentCli"]["operations"]
     assert "diagnostic-engine-v1" in manifest["capabilities"]
     assert "rule-catalog" in manifest["capabilities"]
+
+
+def test_vscode_extension_metadata_is_publishable() -> None:
+    package = json.loads((ROOT / "gaia-vscode" / "package.json").read_text(encoding="utf-8"))
+
+    assert package["name"] == "gaia-vscode"
+    assert package["publisher"] == "newtontech"
+    assert package["repository"]["directory"] == "gaia-vscode"
+    assert package["main"] == "./out/src/extension.js"
+    assert "gaia.lsp.checkFile" in {item["command"] for item in package["contributes"]["commands"]}
+
+    manifest = json.loads((ROOT / "lsp-capabilities.json").read_text(encoding="utf-8"))
+    extension = manifest["editorExtensions"][0]
+    assert extension["directory"] == "gaia-vscode"
+    assert extension["extensionId"] == "newtontech.gaia-vscode"

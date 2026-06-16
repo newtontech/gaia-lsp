@@ -81,4 +81,8 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.9"
 strict = true
-exclude = ["src/gaia_lsp/server.py"]
+exclude = ["(^|/)src/gaia_lsp/server\\.py$"]
+
+[[tool.mypy.overrides]]
+module = "gaia_lsp.server"
+ignore_errors = true

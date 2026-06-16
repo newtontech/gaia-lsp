@@ -44,6 +44,45 @@ def test_tool_fails_on_blocking_when_requested(tmp_path: Path, capsys) -> None: 
     assert payload["diagnostics"][0]["code"] == "GAIA010"
 
 
+def test_tool_check_reports_error_and_warning_severities(tmp_path: Path) -> None:
+    sample = tmp_path / "mixed.py"
+    sample.write_text(
+        """
+from gaia.engine.lang import claim
+
+missing_content = claim()
+shortcut_prior = claim("Prior shortcut remains reviewable.", prior=0.5)
+""",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gaia_lsp.tool",
+            "check",
+            str(sample),
+            "--fail-on-blocking",
+        ],
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+    )
+
+    payload = json.loads(result.stdout)
+    severities = {item["code"]: item["severity"] for item in payload["diagnostics"]}
+
+    assert result.returncode == 1
+    assert payload["ok"] is False
+    assert payload["blockingDiagnosticCount"] == 1
+    assert severities["GAIA010"] == "error"
+    assert severities["GAIA011"] == "warning"
+
+
 def test_lint_cli_json_entrypoint(tmp_path: Path) -> None:
     sample = tmp_path / "bad.py"
     sample.write_text("PRIORS = {'x': 0.5}\n", encoding="utf-8")

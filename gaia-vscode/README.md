@@ -5,7 +5,8 @@ Lang Python DSL packages.
 
 The extension does not import or execute the target Gaia package. It shells out
 to `gaia-lsp-tool check` and converts the JSON diagnostic envelope into VS Code
-diagnostics.
+diagnostics. Completion, hover, document symbols, rule catalog, and authoring
+context are also served through `gaia-lsp-tool`.
 
 ## Requirements
 
@@ -29,6 +30,7 @@ or use `gaiaLsp.toolArgs` for a wrapper. For example:
 
 - `Gaia LSP: Check Current File`
 - `Gaia LSP: Check Workspace`
+- `Gaia LSP: Show Authoring Context`
 - `Gaia LSP: Show Rule Catalog`
 
 ## Settings

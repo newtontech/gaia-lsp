@@ -48,3 +48,5 @@ def test_vscode_extension_metadata_is_publishable() -> None:
     extension = manifest["editorExtensions"][0]
     assert extension["directory"] == "gaia-vscode"
     assert extension["extensionId"] == "newtontech.gaia-vscode"
+    assert "gaia.lsp.showContext" in extension["commands"]
+    assert set(extension["providers"]) >= {"diagnostics", "completion", "hover", "documentSymbol"}

@@ -33,7 +33,9 @@ ruff check src tests
 
 The VS Code extension lives in `gaia-vscode/` and publishes as
 `newtontech.gaia-vscode`. It calls the same static `gaia-lsp-tool` JSON CLI and
-renders Gaia diagnostics in the Problems panel.
+renders Gaia diagnostics in the Problems panel. The extension also wires Gaia
+completion, hover, document-symbol, rule-catalog, and authoring-context
+features through the same CLI surface.
 
 Local package check:
 

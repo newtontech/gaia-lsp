@@ -44,6 +44,7 @@
     "onLanguage:python",
     "onCommand:gaia.lsp.checkFile",
     "onCommand:gaia.lsp.checkWorkspace",
+    "onCommand:gaia.lsp.showContext",
     "onCommand:gaia.lsp.showRules"
   ],
   "main": "./out/src/extension.js",
@@ -68,6 +69,11 @@
       {
         "command": "gaia.lsp.checkWorkspace",
         "title": "Gaia LSP: Check Workspace",
+        "category": "Gaia"
+      },
+      {
+        "command": "gaia.lsp.showContext",
+        "title": "Gaia LSP: Show Authoring Context",
         "category": "Gaia"
       },
       {
@@ -97,6 +103,9 @@
         },
         {
           "command": "gaia.lsp.checkWorkspace"
+        },
+        {
+          "command": "gaia.lsp.showContext"
         },
         {
           "command": "gaia.lsp.showRules"

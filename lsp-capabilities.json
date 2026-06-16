@@ -76,7 +76,14 @@
       "commands": [
         "gaia.lsp.checkFile",
         "gaia.lsp.checkWorkspace",
+        "gaia.lsp.showContext",
         "gaia.lsp.showRules"
+      ],
+      "providers": [
+        "diagnostics",
+        "completion",
+        "hover",
+        "documentSymbol"
       ]
     }
   ],

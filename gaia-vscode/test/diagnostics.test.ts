@@ -8,6 +8,11 @@ import {
   severityName,
   summarizeCheck
 } from "../src/diagnostics";
+import {
+  parseCompletionOutput,
+  parseHoverOutput,
+  parseSymbolsOutput
+} from "../src/language";
 
 test("parses gaia-lsp-tool check payloads", () => {
   const payload = parseGaiaCheckOutput(
@@ -95,4 +100,32 @@ test("groups diagnostics by reported file with fallback path", () => {
   assert.equal(grouped["/tmp/pkg/pyproject.toml"].length, 1);
   assert.equal(grouped["/tmp/pkg/src/pkg/__init__.py"].length, 1);
   assert.equal(grouped["/tmp/pkg/src/pkg/__init__.py"][0].severity, "Warning");
+});
+
+test("parses language capability payloads from gaia-lsp-tool", () => {
+  const completions = parseCompletionOutput(
+    JSON.stringify({
+      software: "gaia",
+      operation: "complete",
+      items: [{ label: "claim", detail: "claim(content)" }]
+    })
+  );
+  const hover = parseHoverOutput(
+    JSON.stringify({
+      software: "gaia",
+      operation: "hover",
+      contents: "Declare a falsifiable Gaia claim."
+    })
+  );
+  const symbols = parseSymbolsOutput(
+    JSON.stringify({
+      software: "gaia",
+      operation: "symbols",
+      symbols: [{ name: "aristotle_model", kind: "claim", line: 20, column: 1 }]
+    })
+  );
+
+  assert.equal(completions[0].label, "claim");
+  assert.equal(hover?.contents, "Declare a falsifiable Gaia claim.");
+  assert.equal(symbols[0].name, "aristotle_model");
 });

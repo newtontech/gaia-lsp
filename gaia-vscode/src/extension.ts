@@ -9,6 +9,14 @@ import {
   parseGaiaCheckOutput,
   summarizeCheck
 } from "./diagnostics";
+import {
+  GaiaCompletionItem,
+  GaiaHoverResult,
+  GaiaSymbol,
+  parseCompletionOutput,
+  parseHoverOutput,
+  parseSymbolsOutput
+} from "./language";
 
 interface ExtensionSettings {
   toolPath: string;
@@ -30,6 +38,7 @@ let diagnostics: vscode.DiagnosticCollection;
 let output: vscode.OutputChannel;
 let statusBar: vscode.StatusBarItem;
 let lastDiagnosticUris = new Set<string>();
+const gaiaDocumentSelector: vscode.DocumentSelector = [{ language: "python", scheme: "file" }];
 
 export function activate(context: vscode.ExtensionContext): void {
   diagnostics = vscode.languages.createDiagnosticCollection("gaia-lsp");
@@ -47,7 +56,22 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar,
     vscode.commands.registerCommand("gaia.lsp.checkFile", checkCurrentFile),
     vscode.commands.registerCommand("gaia.lsp.checkWorkspace", checkWorkspace),
+    vscode.commands.registerCommand("gaia.lsp.showContext", showAuthoringContext),
     vscode.commands.registerCommand("gaia.lsp.showRules", showRuleCatalog),
+    vscode.languages.registerCompletionItemProvider(
+      gaiaDocumentSelector,
+      {
+        provideCompletionItems: provideGaiaCompletions
+      },
+      ".",
+      "("
+    ),
+    vscode.languages.registerHoverProvider(gaiaDocumentSelector, {
+      provideHover: provideGaiaHover
+    }),
+    vscode.languages.registerDocumentSymbolProvider(gaiaDocumentSelector, {
+      provideDocumentSymbols: provideGaiaDocumentSymbols
+    }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (readSettings().checkOnSave && isGaiaCandidate(document)) {
         void checkDocument(document);
@@ -146,6 +170,84 @@ async function showRuleCatalog(): Promise<void> {
   }
 }
 
+async function showAuthoringContext(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== "file") {
+    void vscode.window.showWarningMessage("Open a Gaia Python file before requesting context.");
+    return;
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(["context", editor.document.uri.fsPath], editor.document.uri, settings);
+    await showJsonDocument(result.stdout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(message);
+    void vscode.window.showWarningMessage(message);
+  }
+}
+
+async function provideGaiaCompletions(
+  document: vscode.TextDocument
+): Promise<vscode.CompletionItem[]> {
+  if (!isGaiaCandidate(document)) {
+    return [];
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(["complete", document.uri.fsPath], document.uri, settings);
+    return parseCompletionOutput(result.stdout).map(toVsCodeCompletionItem);
+  } catch (error) {
+    trace(settings, providerErrorMessage("completion", error));
+    return [];
+  }
+}
+
+async function provideGaiaHover(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): Promise<vscode.Hover | null> {
+  if (!isGaiaCandidate(document)) {
+    return null;
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(
+      [
+        "hover",
+        document.uri.fsPath,
+        "--line",
+        String(position.line),
+        "--character",
+        String(position.character)
+      ],
+      document.uri,
+      settings
+    );
+    const hover = parseHoverOutput(result.stdout);
+    return hover ? toVsCodeHover(hover) : null;
+  } catch (error) {
+    trace(settings, providerErrorMessage("hover", error));
+    return null;
+  }
+}
+
+async function provideGaiaDocumentSymbols(
+  document: vscode.TextDocument
+): Promise<vscode.DocumentSymbol[]> {
+  if (!isGaiaCandidate(document)) {
+    return [];
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(["symbols", document.uri.fsPath], document.uri, settings);
+    return parseSymbolsOutput(result.stdout).map(toVsCodeDocumentSymbol);
+  } catch (error) {
+    trace(settings, providerErrorMessage("symbols", error));
+    return [];
+  }
+}
+
 function applyDiagnostics(payload: ReturnType<typeof parseGaiaCheckOutput>, target: vscode.Uri): void {
   const grouped = groupDiagnosticsByFile(payload, payload.path || target.fsPath);
   for (const [filePath, items] of Object.entries(grouped)) {
@@ -155,6 +257,53 @@ function applyDiagnostics(payload: ReturnType<typeof parseGaiaCheckOutput>, targ
   }
   if (Object.keys(grouped).length === 0 && target.fsPath && path.extname(target.fsPath)) {
     diagnostics.delete(target);
+  }
+}
+
+function toVsCodeCompletionItem(item: GaiaCompletionItem): vscode.CompletionItem {
+  const completion = new vscode.CompletionItem(item.label, vscode.CompletionItemKind.Function);
+  completion.detail = item.detail;
+  completion.documentation = item.documentation
+    ? new vscode.MarkdownString(item.documentation)
+    : undefined;
+  return completion;
+}
+
+function toVsCodeHover(hover: GaiaHoverResult): vscode.Hover {
+  return new vscode.Hover(new vscode.MarkdownString(hover.contents));
+}
+
+function toVsCodeDocumentSymbol(symbol: GaiaSymbol): vscode.DocumentSymbol {
+  const line = Math.max(symbol.line - 1, 0);
+  const character = Math.max(symbol.column - 1, 0);
+  const range = new vscode.Range(
+    new vscode.Position(line, character),
+    new vscode.Position(line, character + Math.max(symbol.name.length, 1))
+  );
+  return new vscode.DocumentSymbol(
+    symbol.name,
+    symbol.kind,
+    toVsCodeSymbolKind(symbol.kind),
+    range,
+    range
+  );
+}
+
+function toVsCodeSymbolKind(kind: string): vscode.SymbolKind {
+  switch (kind) {
+    case "claim":
+      return vscode.SymbolKind.Object;
+    case "note":
+      return vscode.SymbolKind.String;
+    case "question":
+      return vscode.SymbolKind.Event;
+    case "distribution":
+      return vscode.SymbolKind.Number;
+    case "action":
+    case "relation":
+      return vscode.SymbolKind.Method;
+    default:
+      return vscode.SymbolKind.Variable;
   }
 }
 
@@ -170,6 +319,15 @@ function toVsCodeDiagnostic(item: DiagnosticTransfer): vscode.Diagnostic {
   diagnostic.code = item.code;
   diagnostic.source = item.source;
   return diagnostic;
+}
+
+async function showJsonDocument(stdout: string): Promise<void> {
+  const formatted = JSON.stringify(JSON.parse(stdout), null, 2);
+  const document = await vscode.workspace.openTextDocument({
+    content: formatted,
+    language: "json"
+  });
+  await vscode.window.showTextDocument(document, { preview: true });
 }
 
 function toVsCodeSeverity(severity: DiagnosticSeverityName): vscode.DiagnosticSeverity {
@@ -273,4 +431,9 @@ function trace(settings: ExtensionSettings, message: string): void {
   if (settings.trace === "messages") {
     output.appendLine(message);
   }
+}
+
+function providerErrorMessage(provider: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `Gaia LSP ${provider} provider failed: ${message}`;
 }

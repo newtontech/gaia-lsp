@@ -38,6 +38,30 @@ ID workload identity for long-term automated publishing. The PAT workflow here
 is still supported for current GitHub Actions publishing, but should be migrated
 before Azure DevOps global PAT retirement on 2026-12-01.
 
+Configure and verify the PAT without writing it to disk:
+
+```bash
+scripts/configure_vsce.sh
+```
+
+To configure the secret and immediately dispatch the Marketplace publish
+workflow:
+
+```bash
+RUN_PUBLISH=true scripts/configure_vsce.sh
+```
+
+The script runs `npx vsce verify-pat newtontech` with `VSCE_PAT` in the command
+environment before writing the token to the repository's GitHub Actions
+secrets.
+
+You can also use npm scripts directly from `gaia-vscode/`:
+
+```bash
+npm run vsce:verify
+npm run vsce:publish:pat
+```
+
 ## GitHub Actions
 
 Manual package-only validation:

@@ -53,7 +53,10 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node --test out/test/*.test.js",
     "package": "npm run compile && vsce package --githubBranch main",
-    "publish": "npm run compile && vsce publish --githubBranch main"
+    "publish": "npm run compile && vsce publish --githubBranch main",
+    "vsce:verify": "vsce verify-pat newtontech",
+    "vsce:publish:pat": "npm run compile && vsce publish --githubBranch main",
+    "vsce:publish:azure": "npm run compile && vsce publish --githubBranch main --azure-credential"
   },
   "contributes": {
     "commands": [

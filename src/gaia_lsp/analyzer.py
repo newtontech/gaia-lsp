@@ -34,6 +34,7 @@ from .rules import (
     CONTENT_CALLS,
     CROMWELL_EPS,
     CSL_TYPES,
+    CURRENT_GAIA_SERIES,
     DEPRECATED_CALLS,
     DEPRECATED_RELATIONS,
     DEPRECATED_STRATEGIES,
@@ -43,18 +44,21 @@ from .rules import (
     EXPORTABLE_KNOWLEDGE_CALLS,
     RELATION_CALLS,
     SCAFFOLD_CALLS,
+    SUPPORTED_GAIA_SERIES,
     SYMBOLS,
     import_completion_items,
     preferred_import_for_symbol,
 )
 
 GAIA_MODULES = {
+    "gaia.lang",
     "gaia.engine.bayes",
     "gaia.engine.bayes.dsl",
     "gaia.engine.lang",
     "gaia.engine.lang.dsl",
 }
 GAIA_MODULE_PREFIXES = (
+    "gaia.lang",
     "gaia.engine.bayes",
     "gaia.engine.lang",
 )
@@ -287,6 +291,7 @@ def package_context(path: Path) -> dict[str, Any]:
     project_config = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
     project_name = project_config.get("name")
     import_name = _project_import_name(project_name)
+    gaia_version = _declared_gaia_version(config, project_name)
     package_index = _PackageIndex.build(package_root)
     modules = [
         _module_context_item(file_path, index, source_root, import_name)
@@ -296,6 +301,9 @@ def package_context(path: Path) -> dict[str, Any]:
         "root": str(package_root),
         "projectName": project_name if isinstance(project_name, str) else None,
         "importName": import_name,
+        "gaiaVersion": gaia_version,
+        "supportedGaiaSeries": list(SUPPORTED_GAIA_SERIES),
+        "currentGaiaSeries": CURRENT_GAIA_SERIES,
         "sourceRoot": str(source_root) if source_root else None,
         "modules": modules,
         "referenceKeys": sorted(package_index.reference_info.keys),
@@ -327,6 +335,168 @@ def references_at(path: Path, line: int, character: int) -> list[dict[str, Any]]
     if not symbol:
         return []
     return _symbol_references_for_scope(path, symbol)
+
+
+def workspace_symbols(path: Path, query: str = "") -> list[dict[str, Any]]:
+    """Return Gaia symbols under a file, package, or workspace path."""
+
+    path = path.resolve()
+    root = _find_gaia_package_root(path) or (path if path.is_dir() else path.parent)
+    query_folded = query.casefold()
+    symbols: list[dict[str, Any]] = []
+    for child in _python_files_for_scope(root, root if root.is_dir() else None):
+        try:
+            text = child.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for symbol in document_symbols(text):
+            if query_folded and query_folded not in symbol["name"].casefold():
+                continue
+            symbols.append(_location_from_symbol(symbol, child))
+    return sorted(symbols, key=lambda item: (item["name"], item["file"], item["line"]))
+
+
+def folding_ranges(text: str) -> list[dict[str, int | str]]:
+    """Return foldable Gaia/Python source ranges in LSP-compatible coordinates."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    ranges: list[dict[str, int | str]] = []
+    for node in ast.walk(tree):
+        start_line = int(getattr(node, "lineno", 0) or 0)
+        end_line = int(getattr(node, "end_lineno", 0) or 0)
+        if start_line <= 0 or end_line <= start_line:
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            kind = "region"
+        elif isinstance(node, (ast.Call, ast.List, ast.Tuple, ast.Dict, ast.Set)):
+            kind = "region"
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            kind = "comment"
+        else:
+            continue
+        ranges.append({"startLine": start_line - 1, "endLine": end_line - 1, "kind": kind})
+    return _dedupe_ranges(ranges)
+
+
+def document_links(text: str, path: Path | None = None) -> list[dict[str, Any]]:
+    """Return links for strict Gaia references and local artifact paths."""
+
+    links: list[dict[str, Any]] = []
+    for match in BRACKET_GROUP_RE.finditer(text):
+        body = match.group(1)
+        for key_match in INNER_KEY_RE.finditer(body):
+            key = key_match.group(1)
+            start = match.start(1) + key_match.start(1)
+            end = match.start(1) + key_match.end(1)
+            target = _reference_target(path, key)
+            if target is None:
+                continue
+            links.append(
+                {
+                    "target": target,
+                    "tooltip": f"Open Gaia reference {key}",
+                    "range": _offset_range(text, start, end),
+                }
+            )
+    if path is not None:
+        links.extend(_artifact_path_links(text, path))
+    return links
+
+
+def rename_edits_at(path: Path, line: int, character: int, new_name: str) -> dict[str, Any]:
+    """Return conservative package-local rename edits for Gaia bindings and labels."""
+
+    path = path.resolve()
+    text = path.read_text(encoding="utf-8")
+    old_name = _word_at(text, line, character)
+    if not old_name:
+        raise ValueError("rename position does not resolve to a Gaia symbol or label")
+    if not CITATION_KEY_RE.match(new_name):
+        raise ValueError(f"new Gaia name {new_name!r} is not a valid identifier/reference key")
+    references = references_at(path, line, character)
+    if not references:
+        raise ValueError(f"no package-local Gaia references found for {old_name!r}")
+    changes: dict[str, list[dict[str, Any]]] = {}
+    for item in references:
+        start_column = int(item["column"]) - 1
+        end_column = int(item["endColumn"]) - 1
+        if item.get("kind") == "strict-reference":
+            start_column += 1
+        edit = {
+            "range": {
+                "start": {"line": int(item["line"]) - 1, "character": start_column},
+                "end": {"line": int(item["endLine"]) - 1, "character": end_column},
+            },
+            "newText": new_name,
+        }
+        changes.setdefault(str(item["uri"]), []).append(edit)
+    return {"oldName": old_name, "newName": new_name, "changes": changes}
+
+
+SEMANTIC_TOKEN_TYPES = ["function", "variable", "class", "namespace", "property", "string"]
+SEMANTIC_TOKEN_MODIFIERS = ["deprecated", "readonly"]
+
+
+def semantic_tokens(text: str) -> list[dict[str, Any]]:
+    """Return semantic token spans for Gaia DSL calls and authored bindings."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    imports = _ImportContext.from_tree(tree)
+    tokens: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        value = _assignment_value(node)
+        if isinstance(value, ast.Call):
+            name = imports.canonical_call_name(value.func, allow_unimported=True)
+            if name in DOCUMENT_SYMBOL_CALLS:
+                for target in _assignment_target_nodes(node):
+                    if isinstance(target, ast.Name):
+                        tokens.append(
+                            _semantic_token(
+                                target.lineno,
+                                target.col_offset,
+                                len(target.id),
+                                "variable",
+                            )
+                        )
+        if isinstance(node, ast.Call):
+            name = imports.canonical_call_name(node.func, allow_unimported=True)
+            if name in ALL_KNOWN_CALLS:
+                location = _call_name_location(node.func)
+                if location is not None:
+                    line, column, length = location
+                    modifiers = []
+                    if (
+                        name in DEPRECATED_CALLS
+                        or name in DEPRECATED_RELATIONS
+                        or name in DEPRECATED_STRATEGIES
+                    ):
+                        modifiers.append("deprecated")
+                    token_type = (
+                        "class"
+                        if name in DISTRIBUTIONS or name in {"Variable", "Domain"}
+                        else "function"
+                    )
+                    tokens.append(_semantic_token(line, column, length, token_type, modifiers))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            label = _gaia_label_value(node, tree)
+            if label:
+                tokens.append(
+                    _semantic_token(
+                        int(getattr(node, "lineno", 1) or 1),
+                        int(getattr(node, "col_offset", 0) or 0)
+                        + _string_content_start_offset(text, node),
+                        len(label),
+                        "string",
+                        ["readonly"],
+                    )
+                )
+    return sorted(tokens, key=lambda item: (item["line"], item["character"], item["length"]))
 
 
 def hover(symbol: str) -> str:
@@ -1086,7 +1256,8 @@ class _Analyzer(ast.NodeVisitor):
                     )
                 )
             given = _keyword_value(node, "given")
-            if given is not None and not _is_empty_collection_or_none(given):
+            given_count = _literal_collection_length(given)
+            if given_count is not None and given_count > 0:
                 self.diagnostics.append(
                     diagnostic(
                         "GAIA091",
@@ -1153,7 +1324,7 @@ class _Analyzer(ast.NodeVisitor):
                     path=self.path,
                 )
             )
-        if not source and not path:
+        if not _keyword_present(node, "source") and not _keyword_present(node, "path"):
             self.diagnostics.append(
                 diagnostic(
                     "GAIA073",
@@ -1259,7 +1430,7 @@ class _Analyzer(ast.NodeVisitor):
         if name == "candidate_relation":
             claims = _keyword_value(node, "claims")
             claims_count = _literal_collection_length(claims)
-            if claims_count is None or claims_count < 2:
+            if claims is None or (claims_count is not None and claims_count < 2):
                 self.diagnostics.append(
                     diagnostic(
                         "GAIA102",
@@ -1424,7 +1595,7 @@ class _Analyzer(ast.NodeVisitor):
                         "GAIA040",
                         f"__all__ exports {name!r}, but no local exportable Gaia Knowledge "
                         "binding with that name was found in this package.",
-                        "warning",
+                        "error",
                         entry_node,
                         path=self.path,
                     )
@@ -1441,7 +1612,7 @@ class _Analyzer(ast.NodeVisitor):
                         diagnostic(
                             "GAIA042",
                             "__all__ entries should be literal strings.",
-                            "warning",
+                            "error",
                             element,
                             path=self.path,
                         )
@@ -1465,7 +1636,7 @@ class _Analyzer(ast.NodeVisitor):
                             "GAIA042",
                             "export() entries in __all__ should be names or literal "
                             "strings for static validation.",
-                            "warning",
+                            "error",
                             arg,
                             path=self.path,
                         )
@@ -1476,7 +1647,7 @@ class _Analyzer(ast.NodeVisitor):
                 "GAIA042",
                 "__all__ should be a static literal list or export(...) call so Gaia "
                 "can validate exports.",
-                "warning",
+                "error",
                 node,
                 path=self.path,
             )
@@ -1599,6 +1770,32 @@ def _check_package_structure(root: Path) -> tuple[dict[str, Any], Path | None, l
         diagnostics.append(
             _path_diagnostic("GAIA065", "[project].version is required.", "error", pyproject)
         )
+    gaia_version = _declared_gaia_version(config, project_name)
+    if gaia_version is not None:
+        normalized_version = gaia_version.removeprefix("v")
+        if not any(
+            normalized_version == series or normalized_version.startswith(f"{series}.")
+            for series in SUPPORTED_GAIA_SERIES
+        ):
+            diagnostics.append(
+                _path_diagnostic(
+                    "GAIA120",
+                    f"Gaia language version {gaia_version!r} is not covered by this "
+                    "static rule catalog.",
+                    "error",
+                    pyproject,
+                )
+            )
+        elif not normalized_version.startswith(CURRENT_GAIA_SERIES):
+            diagnostics.append(
+                _path_diagnostic(
+                    "GAIA121",
+                    f"Gaia language version {gaia_version!r} uses a legacy authoring "
+                    "series; compatibility aliases are linted but v0.5 is preferred.",
+                    "warning",
+                    pyproject,
+                )
+            )
     import_name = project_name.removesuffix("-gaia").replace("-", "_")
     candidates = [root / import_name, root / "src" / import_name]
     source_root = next((candidate for candidate in candidates if candidate.exists()), None)
@@ -1624,6 +1821,21 @@ def _check_package_structure(root: Path) -> tuple[dict[str, Any], Path | None, l
             )
         )
     return config, source_root, diagnostics
+
+
+def _declared_gaia_version(config: dict[str, Any], project_name: Any) -> str | None:
+    tool_config = config.get("tool", {}) if isinstance(config.get("tool"), dict) else {}
+    gaia_section = tool_config.get("gaia", {}) if isinstance(tool_config, dict) else {}
+    if isinstance(gaia_section, dict):
+        for key in ("language_version", "gaia_version", "version"):
+            value = gaia_section.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    if isinstance(project_name, str):
+        match = re.search(r"(?:^|-|_)v?(0)[._-]([0-9]+)(?:-|_|$)", project_name)
+        if match:
+            return f"{match.group(1)}.{match.group(2)}"
+    return None
 
 
 def _load_reference_info_for_path(
@@ -1758,6 +1970,15 @@ def _assignment_target_names(node: ast.AST) -> list[str]:
     return names
 
 
+def _assignment_target_nodes(node: ast.AST) -> list[ast.AST]:
+    targets: list[ast.AST] = []
+    if isinstance(node, ast.Assign):
+        targets.extend(node.targets)
+    elif isinstance(node, ast.AnnAssign):
+        targets.append(node.target)
+    return targets
+
+
 def _target_names(target: ast.AST) -> list[str]:
     if isinstance(target, ast.Name):
         return [target.id]
@@ -1817,13 +2038,10 @@ def _is_probability_literal(node: ast.AST) -> bool:
 def _is_nonnegative_integer_literal(node: ast.AST) -> bool:
     if _literal_bad_number(node):
         return False
-    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(
-        node.value, bool
-    ):
-        return node.value >= 0
-    if isinstance(node, ast.Constant) and isinstance(node.value, float):
-        return node.value.is_integer() and node.value >= 0
-    return True
+    value = _literal_number(node)
+    if value is None:
+        return True
+    return value.is_integer() and value >= 0
 
 
 def _literal_bad_number(node: ast.AST) -> bool:
@@ -1890,6 +2108,122 @@ def _path_diagnostic(code: str, message: str, severity: str, path: Path) -> Diag
         column=1,
         file=str(path),
     )
+
+
+def _dedupe_ranges(ranges: list[dict[str, int | str]]) -> list[dict[str, int | str]]:
+    seen: set[tuple[int, int, str]] = set()
+    out: list[dict[str, int | str]] = []
+    for item in sorted(ranges, key=lambda value: (int(value["startLine"]), int(value["endLine"]))):
+        key = (int(item["startLine"]), int(item["endLine"]), str(item.get("kind", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _offset_range(text: str, start: int, end: int) -> dict[str, dict[str, int]]:
+    line_starts = [0]
+    for match in re.finditer("\n", text):
+        line_starts.append(match.end())
+
+    def position(offset: int) -> dict[str, int]:
+        line = 0
+        for index, line_start in enumerate(line_starts):
+            if line_start > offset:
+                break
+            line = index
+        return {"line": line, "character": offset - line_starts[line]}
+
+    return {"start": position(start), "end": position(end)}
+
+
+def _reference_target(path: Path | None, key: str) -> str | None:
+    if path is None:
+        return None
+    reference_info = _load_reference_info_for_path(path, set())
+    if key in reference_info.keys:
+        for directory in [path.parent, *path.parent.parents]:
+            candidate = directory / "references.json"
+            if candidate.exists():
+                return candidate.as_uri()
+            if (directory / ".git").exists():
+                break
+    root = _find_gaia_package_root(path)
+    if root is not None:
+        for item in _symbol_definitions_for_scope(path):
+            if item["name"] == key or item.get("label") == key:
+                return str(item["uri"])
+    return None
+
+
+def _artifact_path_links(text: str, path: Path) -> list[dict[str, Any]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    root = _find_gaia_package_root(path) or path.parent
+    links: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "path" or not isinstance(keyword.value, ast.Constant):
+                continue
+            value = keyword.value.value
+            if not isinstance(value, str) or not value:
+                continue
+            target = root / value
+            if not target.exists():
+                continue
+            start_line = int(getattr(keyword.value, "lineno", 1) or 1)
+            start_column = int(getattr(keyword.value, "col_offset", 0) or 0)
+            content_start = _string_content_start_offset(text, keyword.value)
+            links.append(
+                {
+                    "target": target.as_uri(),
+                    "tooltip": f"Open Gaia artifact {value}",
+                    "range": {
+                        "start": {
+                            "line": start_line - 1,
+                            "character": start_column + content_start,
+                        },
+                        "end": {
+                            "line": start_line - 1,
+                            "character": start_column + content_start + len(value),
+                        },
+                    },
+                }
+            )
+    return links
+
+
+def _semantic_token(
+    line: int,
+    character: int,
+    length: int,
+    token_type: str,
+    modifiers: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "line": line - 1,
+        "character": character,
+        "length": length,
+        "tokenType": token_type,
+        "tokenModifiers": modifiers or [],
+    }
+
+
+def _call_name_location(func: ast.AST) -> tuple[int, int, int] | None:
+    if isinstance(func, ast.Name):
+        return int(func.lineno), int(func.col_offset), len(func.id)
+    if isinstance(func, ast.Attribute):
+        return (
+            int(func.lineno),
+            int(func.end_col_offset or func.col_offset) - len(func.attr),
+            len(func.attr),
+        )
+    return None
 
 
 def _sort_diagnostics(diagnostics: list[Diagnostic]) -> list[Diagnostic]:

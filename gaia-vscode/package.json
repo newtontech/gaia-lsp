@@ -2,7 +2,7 @@
   "name": "gaia-vscode",
   "displayName": "Gaia LSP",
   "description": "VS Code diagnostics, completion, hover, and navigation for Gaia Lang Python DSL packages using gaia-lsp static checks.",
-  "version": "0.1.0",
+  "version": "0.5.0-alpha.3",
   "publisher": "newtontech",
   "license": "MIT",
   "icon": "media/icon.png",

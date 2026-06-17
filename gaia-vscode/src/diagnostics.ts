@@ -45,9 +45,14 @@ export interface DiagnosticTransfer {
 }
 
 export function parseGaiaCheckOutput(stdout: string): GaiaCheckResult {
-  const payload = JSON.parse(stdout) as Partial<GaiaCheckResult>;
+  const payload = JSON.parse(stdout) as Partial<GaiaCheckResult> & {
+    error?: { kind?: string; message?: string };
+  };
   if (payload.software !== "gaia" || payload.operation !== "check") {
     throw new Error("gaia-lsp-tool returned a non-check payload");
+  }
+  if (payload.ok === false && payload.error) {
+    throw new Error(payload.error.message ?? "gaia-lsp-tool check failed");
   }
   if (!Array.isArray(payload.diagnostics)) {
     throw new Error("gaia-lsp-tool payload is missing diagnostics");

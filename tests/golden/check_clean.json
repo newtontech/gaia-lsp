@@ -1,0 +1,11 @@
+{
+  "blockingDiagnosticCount": 0,
+  "diagnosticCount": 0,
+  "diagnostics": [],
+  "ok": true,
+  "operation": "check",
+  "path": "<FIXTURE>",
+  "software": "gaia",
+  "toolVersion": "0.5.0a3",
+  "uri": "<URI>"
+}

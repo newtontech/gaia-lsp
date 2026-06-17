@@ -8,6 +8,16 @@
     "software": {"const": "gaia"},
     "operation": {"type": "string"},
     "ok": {"type": "boolean"},
+    "toolVersion": {"type": "string"},
+    "path": {"type": "string"},
+    "error": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": {"type": "string"},
+        "message": {"type": "string"}
+      }
+    },
     "diagnostics": {
       "type": "array",
       "items": {

@@ -173,8 +173,17 @@ def test_tool_operations_emit_expected_json(tmp_path: Path, capsys) -> None:  # 
     assert main(["context", str(package_root)]) == 0
     context = json.loads(capsys.readouterr().out)
     assert context["package"]["importName"] == "sample_v0_5"
+    assert context["query"] == ""
     assert context["symbols"][0]["name"] == "known"
     assert any(item["label"] == "from .priors import *" for item in context["completionItems"])
+
+    assert main(["context", str(package_root), "--query", "register_prior"]) == 0
+    focused_context = json.loads(capsys.readouterr().out)
+    assert focused_context["query"] == "register_prior"
+    assert [item["label"] for item in focused_context["completionItems"]] == ["register_prior"]
+    assert focused_context["symbols"] == []
+    assert focused_context["explanations"][0]["kind"] == "symbol"
+    assert focused_context["explanations"][0]["symbol"]["label"] == "register_prior"
 
     assert main(["context", str(init_py)]) == 0
     assert json.loads(capsys.readouterr().out)["package"]["projectName"] == "sample-v0-5-gaia"
@@ -194,6 +203,27 @@ def test_tool_operations_emit_expected_json(tmp_path: Path, capsys) -> None:  # 
     references_payload = json.loads(capsys.readouterr().out)
     assert references_payload["operation"] == "references"
     assert references_payload["references"]
+
+    assert main(["workspace-symbols", str(package_root), "--query", "known"]) == 0
+    workspace_payload = json.loads(capsys.readouterr().out)
+    assert workspace_payload["operation"] == "workspace-symbols"
+    assert workspace_payload["symbols"][0]["name"] == "known"
+
+    assert main(["folding", str(init_py)]) == 0
+    assert json.loads(capsys.readouterr().out)["operation"] == "folding"
+
+    assert main(["links", str(init_py)]) == 0
+    assert json.loads(capsys.readouterr().out)["operation"] == "links"
+
+    assert main(["rename", str(init_py), "renamed_known", "--line", "1", "--character", "1"]) == 0
+    rename_payload = json.loads(capsys.readouterr().out)
+    assert rename_payload["operation"] == "rename"
+    assert rename_payload["newName"] == "renamed_known"
+
+    assert main(["semantic-tokens", str(init_py)]) == 0
+    semantic_payload = json.loads(capsys.readouterr().out)
+    assert semantic_payload["operation"] == "semantic-tokens"
+    assert semantic_payload["tokens"]
 
 
 def test_tool_manual_and_explain_commands_emit_language_reference(
@@ -230,3 +260,95 @@ def test_tool_manual_and_explain_commands_emit_language_reference(
 
     assert main(["hover", str(sample), "--line", "1", "--character", "9"]) == 0
     assert "claim(content" in json.loads(capsys.readouterr().out)["contents"]
+
+
+def test_check_missing_file_emits_machine_readable_error(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    missing = tmp_path / "absent.py"
+
+    exit_code = main(["check", str(missing)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["operation"] == "check"
+    assert payload["ok"] is False
+    assert payload["toolVersion"]
+    assert payload["error"]["kind"] == "missing_file"
+    assert payload["error"]["message"]
+    assert str(missing) in payload["path"]
+
+
+def test_hover_missing_file_emits_machine_readable_error(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    missing = tmp_path / "absent.py"
+
+    exit_code = main(["hover", str(missing), "--line", "2", "--character", "3"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["error"]["kind"] == "missing_file"
+    assert payload["line"] == 2
+    assert payload["character"] == 3
+
+
+def test_file_only_operation_on_directory_emits_not_a_file(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    exit_code = main(["hover", str(tmp_path), "--line", "0", "--character", "0"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["error"]["kind"] == "not_a_file"
+
+
+def test_non_utf8_file_emits_encoding_error(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    binary = tmp_path / "binary.py"
+    binary.write_bytes(b"\xff\xfe not valid utf-8 \x00\x00")
+
+    exit_code = main(["hover", str(binary), "--line", "1", "--character", "1"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["error"]["kind"] == "encoding_error"
+
+
+def test_check_non_utf8_file_remains_machine_readable(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    binary = tmp_path / "binary.py"
+    binary.write_bytes(b"\xff\xfe not valid utf-8 \x00\x00")
+
+    exit_code = main(["check", str(binary), "--fail-on-blocking"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["error"]["kind"] in {"encoding_error", "io_error"}
+
+
+def test_explain_unknown_topic_emits_machine_readable_error(capsys) -> None:  # type: ignore[no-untyped-def]
+    exit_code = main(["explain", "NotARealSymbol"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload["operation"] == "explain"
+    assert payload["ok"] is False
+    assert payload["error"]["kind"] == "unknown_topic"
+
+
+def test_success_envelopes_carry_ok_and_tool_version(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    sample = tmp_path / "sample.py"
+    sample.write_text(
+        "from gaia.engine.lang import claim\nknown = claim('Known')\n",
+        encoding="utf-8",
+    )
+    operations = [
+        ["check", str(sample)],
+        ["context", str(sample)],
+        ["complete", str(sample)],
+        ["symbols", str(sample)],
+        ["hover", str(sample), "--line", "1", "--character", "9"],
+        ["rules"],
+        ["manual", "--format", "json"],
+        ["explain", "claim"],
+    ]
+
+    for argv in operations:
+        assert main(argv) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload.get("ok") is True, argv
+        assert payload.get("toolVersion"), argv

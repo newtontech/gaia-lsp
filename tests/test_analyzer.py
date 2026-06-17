@@ -7,11 +7,16 @@ from gaia_lsp.analyzer import (
     analyze_text,
     completion_items,
     definition_at,
+    document_links,
     document_symbols,
+    folding_ranges,
     hover,
     hover_at,
     package_context,
     references_at,
+    rename_edits_at,
+    semantic_tokens,
+    workspace_symbols,
 )
 
 VALID_GAIA = '''
@@ -258,6 +263,100 @@ type = "knowledge-package"
     assert "from .priors import *" in labels
     assert "from ..priors import *" in nested_labels
     assert "from .priors import *" not in nested_labels
+    assert context["gaiaVersion"] == "0.5"
+    assert "0.4" in context["supportedGaiaSeries"]
+
+
+def test_package_version_metadata_reports_legacy_and_unsupported_series(tmp_path: Path) -> None:
+    legacy = tmp_path / "legacy-gaia"
+    legacy_src = legacy / "src" / "legacy"
+    legacy_src.mkdir(parents=True)
+    (legacy / "pyproject.toml").write_text(
+        """
+[project]
+name = "legacy-gaia"
+version = "0.1.0"
+
+[tool.gaia]
+type = "knowledge-package"
+language_version = "0.4"
+""",
+        encoding="utf-8",
+    )
+    (legacy_src / "__init__.py").write_text("", encoding="utf-8")
+
+    future = tmp_path / "future-gaia"
+    future_src = future / "src" / "future"
+    future_src.mkdir(parents=True)
+    (future / "pyproject.toml").write_text(
+        """
+[project]
+name = "future-gaia"
+version = "0.1.0"
+
+[tool.gaia]
+type = "knowledge-package"
+language_version = "0.9"
+""",
+        encoding="utf-8",
+    )
+    (future_src / "__init__.py").write_text("", encoding="utf-8")
+
+    assert "GAIA121" in [diagnostic.code for diagnostic in analyze_path(legacy)]
+    assert "GAIA120" in [diagnostic.code for diagnostic in analyze_path(future)]
+
+
+def test_workspace_folding_links_rename_and_semantic_helpers(tmp_path: Path) -> None:
+    project = tmp_path / "rich-v0-5-gaia"
+    package = project / "src" / "rich_v0_5"
+    artifact = project / "artifacts" / "fig1.png"
+    package.mkdir(parents=True)
+    artifact.parent.mkdir()
+    artifact.write_bytes(b"png")
+    (project / "pyproject.toml").write_text(
+        """
+[project]
+name = "rich-v0-5-gaia"
+version = "0.1.0"
+
+[tool.gaia]
+type = "knowledge-package"
+""",
+        encoding="utf-8",
+    )
+    (project / "references.json").write_text(
+        '{"Paper2026": {"type": "article-journal", "title": "Paper"}}',
+        encoding="utf-8",
+    )
+    init_py = package / "__init__.py"
+    source = '''
+from gaia.engine.lang import claim, figure
+
+result = claim(
+    """Result cites [@Paper2026].""",
+    label="result_label",
+)
+plot = figure(path="artifacts/fig1.png", caption="Figure")
+consumer = claim("Uses [@result_label].")
+'''
+    init_py.write_text(source, encoding="utf-8")
+
+    symbols = workspace_symbols(project, "result")
+    folds = folding_ranges(source)
+    links = document_links(source, init_py)
+    rename_payload = rename_edits_at(init_py, 3, 1, "renamed_result")
+    tokens = semantic_tokens(source)
+
+    assert any(item["name"] == "result" for item in symbols)
+    assert any(item["endLine"] > item["startLine"] for item in folds)
+    assert any(str(link["target"]).endswith("references.json") for link in links)
+    assert any(str(link["target"]).endswith("fig1.png") for link in links)
+    assert any(
+        "renamed_result" == edit["newText"]
+        for edits in rename_payload["changes"].values()
+        for edit in edits
+    )
+    assert any(item["tokenType"] == "function" for item in tokens)
 
 
 def test_definition_and_references_resolve_package_symbols(tmp_path: Path) -> None:
@@ -401,3 +500,90 @@ on a later line too.""")
 
     assert same_strict["column"] == lines[same_line].index("@known") + 1
     assert triple_strict["column"] == lines[triple_line].index("@known") + 1
+
+
+def test_negative_integer_count_rejected_for_distribution() -> None:
+    negative = codes(
+        "from gaia.engine.lang import Binomial\n"
+        'b = Binomial("trial", n=-3, p=0.5)\n'
+    )
+    positive = codes(
+        "from gaia.engine.lang import Binomial\n"
+        'b = Binomial("trial", n=3, p=0.5)\n'
+    )
+
+    assert "GAIA084" in negative
+    assert "GAIA084" not in positive
+
+
+def test_figure_with_non_literal_path_is_not_a_false_positive() -> None:
+    literal_missing = codes(
+        "from gaia.engine.lang import figure\n"
+        'f = figure(caption="A diagram described inline.")\n'
+    )
+    variable_path = codes(
+        "from gaia.engine.lang import figure\n"
+        'P = "figures/plot.png"\n'
+        'f = figure(path=P, caption="c")\n'
+    )
+
+    assert "GAIA073" in literal_missing
+    assert "GAIA073" not in variable_path
+
+
+def test_candidate_relation_non_literal_claims_is_not_a_false_positive() -> None:
+    variable_claims = codes(
+        "from gaia.engine.lang import candidate_relation\n"
+        "CS = [c1, c2, c3]\n"
+        'candidate_relation(claims=CS, pattern="equal", rationale="r")\n'
+    )
+    missing_claims = codes(
+        "from gaia.engine.lang import candidate_relation\n"
+        'candidate_relation(pattern="equal", rationale="r")\n'
+    )
+    too_few_claims = codes(
+        "from gaia.engine.lang import candidate_relation\n"
+        'candidate_relation(claims=[only], pattern="equal", rationale="r")\n'
+    )
+
+    assert "GAIA102" not in variable_claims
+    assert "GAIA102" in missing_claims
+    assert "GAIA102" in too_few_claims
+
+
+def test_observe_non_literal_given_is_not_a_false_positive() -> None:
+    variable_given = codes(
+        "from gaia.engine.lang import Normal, observe\n"
+        'd = Normal("x", mu=0.0, sigma=1.0)\n'
+        "CONDS = []\n"
+        "observe(d, value=1.0, given=CONDS)\n"
+    )
+    literal_given = codes(
+        "from gaia.engine.lang import Normal, observe\n"
+        'd = Normal("x", mu=0.0, sigma=1.0)\n'
+        "observe(d, value=1.0, given=[c1])\n"
+    )
+
+    assert "GAIA091" not in variable_given
+    assert "GAIA091" in literal_given
+
+
+def test_parser_recognizes_import_aliases_module_access_and_multiline_content() -> None:
+    # Renamed import must not trigger the "unimported Gaia helper" diagnostic.
+    assert codes("from gaia.engine.lang import claim as c\nc('valid claim')") == []
+    # Module-qualified access must be recognized as an import of the helper.
+    assert codes("import gaia.engine.lang as g\ng.claim('valid claim')") == []
+    # Star import brings the helper into scope.
+    assert codes("from gaia.engine.lang import *\nclaim('valid claim')") == []
+    # Triple-quoted multiline content is a valid claim payload.
+    assert codes(
+        'from gaia.engine.lang import claim\n'
+        'c = claim("""line one\\nline two\\nline three""")\n'
+    ) == []
+
+
+def test_parser_is_stable_on_empty_and_partial_modules() -> None:
+    assert codes("") == []
+    assert codes("# only a comment\n") == []
+    # Import without any call must not be flagged.
+    assert codes("from gaia.engine.lang import claim\n") == []

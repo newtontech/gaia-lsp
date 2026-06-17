@@ -31,6 +31,8 @@ GAIA_UPSTREAM = {
 }
 
 CROMWELL_EPS = 1e-3
+SUPPORTED_GAIA_SERIES = ("0.1", "0.2", "0.3", "0.4", "0.5")
+CURRENT_GAIA_SERIES = "0.5"
 
 
 @dataclass(frozen=True)
@@ -481,6 +483,12 @@ PUBLIC_RUNTIME_SYMBOLS: dict[str, SymbolInfo] = {
     "Iff": _runtime_symbol("Iff", "Formula node for logical equivalence."),
     "Implies": _runtime_symbol("Implies", "Formula node for logical implication."),
     "Infer": _runtime_symbol("Infer", "Runtime action record emitted by infer()."),
+    "is_formula": _runtime_symbol(
+        "is_formula", "Predicate that returns True when a value is a Gaia Formula."
+    ),
+    "is_term": _runtime_symbol(
+        "is_term", "Predicate that returns True when a value is a Gaia formula Term."
+    ),
     "Knowledge": _runtime_symbol("Knowledge", "Base runtime object for Gaia knowledge."),
     "Land": _runtime_symbol("Land", "Formula node for logical conjunction."),
     "Less": _runtime_symbol("Less", "Formula node for less-than comparison."),
@@ -517,7 +525,10 @@ for _name, _rule in DISTRIBUTION_RULES.items():
 
 
 RULE_GROUPS: tuple[dict[str, Any], ...] = (
-    {"group": "package", "codes": ["GAIA060", "GAIA063", "GAIA064", "GAIA065", "GAIA066"]},
+    {
+        "group": "package",
+        "codes": ["GAIA063", "GAIA064", "GAIA065", "GAIA066", "GAIA120", "GAIA121"],
+    },
     {"group": "references", "codes": ["GAIA050", "GAIA067", "GAIA068"]},
     {"group": "exports", "codes": ["GAIA040", "GAIA041", "GAIA042"]},
     {
@@ -700,21 +711,12 @@ DIAGNOSTICS: tuple[DiagnosticInfo, ...] = (
     ),
     DiagnosticInfo(
         "GAIA050",
-        "warning",
+        "error",
         "references",
         "Unresolved strict reference",
         "A [@key] marker does not resolve to references.json or a local Gaia label.",
         "Add the citation key, create a local binding, or fix the marker spelling.",
         'claim("The result follows prior work [@Aspect1982].")',
-    ),
-    DiagnosticInfo(
-        "GAIA060",
-        "error",
-        "package",
-        "Missing pyproject.toml",
-        "A Gaia package directory must contain pyproject.toml.",
-        "Run gaia build init or add the package manifest.",
-        "gaia build init my-paper-gaia",
     ),
     DiagnosticInfo(
         "GAIA063",
@@ -751,6 +753,26 @@ DIAGNOSTICS: tuple[DiagnosticInfo, ...] = (
         "The package src layout or root __init__.py is missing.",
         "Create src/<import_name>/__init__.py or fix the project name/source layout.",
         "src/my_paper/__init__.py",
+    ),
+    DiagnosticInfo(
+        "GAIA120",
+        "error",
+        "package",
+        "Unsupported Gaia language version",
+        "The package declares a Gaia language version outside the static rule catalog.",
+        "Use a Gaia series supported by this linter or update gaia-lsp's rule catalog.",
+        '[tool.gaia]\nlanguage_version = "0.5"',
+    ),
+    DiagnosticInfo(
+        "GAIA121",
+        "warning",
+        "package",
+        "Legacy Gaia language series",
+        "The package targets a pre-v0.5 Gaia series. Compatibility aliases are linted, but "
+        "new authoring should migrate to the v0.5 surface.",
+        "Prefer v0.5 forms such as note(), contradict(), derive(), infer(), and "
+        "register_prior().",
+        '[tool.gaia]\nlanguage_version = "0.5"',
     ),
     DiagnosticInfo(
         "GAIA067",
@@ -1205,7 +1227,12 @@ def _manual_sections() -> list[dict[str, Any]]:
                 "gaia-lsp-tool hover path/to/module.py --line 3 --character 10",
                 "gaia-lsp-tool definition path/to/module.py --line 3 --character 10",
                 "gaia-lsp-tool references path/to/module.py --line 3 --character 10",
+                "gaia-lsp-tool workspace-symbols path/to/package --query claim",
                 "gaia-lsp-tool symbols path/to/module.py",
+                "gaia-lsp-tool folding path/to/module.py",
+                "gaia-lsp-tool links path/to/module.py",
+                "gaia-lsp-tool rename path/to/module.py new_label --line 3 --character 10",
+                "gaia-lsp-tool semantic-tokens path/to/module.py",
                 "gaia-lsp-tool rules",
                 "gaia-lsp-tool manual --section diagnostics",
                 "gaia-lsp-tool explain GAIA010",

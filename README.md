@@ -79,11 +79,17 @@ Run the agent-facing JSON tool:
 ```bash
 gaia-lsp-tool capabilities
 gaia-lsp-tool check path/to/package --fail-on-blocking
+gaia-lsp-tool context path/to/package --query register_prior
 gaia-lsp-tool complete path/to/package/src/pkg/__init__.py
 gaia-lsp-tool hover path/to/package/src/pkg/__init__.py --line 3 --character 10
 gaia-lsp-tool definition path/to/package/src/pkg/__init__.py --line 3 --character 10
 gaia-lsp-tool references path/to/package/src/pkg/__init__.py --line 3 --character 10
+gaia-lsp-tool workspace-symbols path/to/package --query model
 gaia-lsp-tool symbols path/to/package/src/pkg/__init__.py
+gaia-lsp-tool folding path/to/package/src/pkg/__init__.py
+gaia-lsp-tool links path/to/package/src/pkg/__init__.py
+gaia-lsp-tool rename path/to/package/src/pkg/__init__.py new_label --line 3 --character 10
+gaia-lsp-tool semantic-tokens path/to/package/src/pkg/__init__.py
 gaia-lsp-tool rules
 gaia-lsp-tool manual
 gaia-lsp-tool manual --section diagnostics
@@ -97,9 +103,13 @@ surface. `explain` drills into one Gaia symbol or one diagnostic code. `rules`
 keeps the same information machine-readable for agents and editor extensions.
 `complete` includes Gaia import snippets and package-local relative import
 suggestions when the path is inside a Gaia package. `context` returns the same
-completion list plus package/module/export metadata for agent workflows.
-`definition` and `references` resolve local Gaia labels across the package
-source tree, including strict `[@label]` prose references.
+completion list plus package/module/export/version metadata for agent workflows;
+`context --query <symbol-or-code>` narrows that payload and includes matching
+Gaia symbol and diagnostic explanations for focused agent lookup.
+`definition`, `references`, `workspace-symbols`, and `rename` resolve local Gaia
+bindings and labels across the package source tree, including strict `[@label]`
+prose references. `folding`, `links`, and `semantic-tokens` expose the same
+static editor surfaces over JSON for agent and CI workflows.
 
 Start the LSP server on stdio:
 
@@ -132,6 +142,8 @@ gaia-lsp --stdio
 - `GAIA064`: Missing or wrong `[tool.gaia].type = "knowledge-package"`.
 - `GAIA065`: Missing required project metadata.
 - `GAIA066`: Missing Gaia package source root or `__init__.py`.
+- `GAIA120`: Declared Gaia language version is outside the supported rule catalog.
+- `GAIA121`: Package targets a legacy Gaia language series before v0.5.
 - `GAIA067`: Invalid `references.json` schema, key, CSL type, or title.
 - `GAIA068`: `references.json` key collides with a local Gaia label or binding.
 - `GAIA070`: Invalid artifact kind.
@@ -165,7 +177,11 @@ measurement observations, artifact metadata, scaffold actions, `register_prior`,
 strict `[@key]` references, CLI authoring groups, and the public
 `gaia.engine.lang` authoring surface. See `docs/GAIA_RULE_COVERAGE.md`,
 `gaia-lsp-tool rules`, and `gaia-lsp-tool manual` for the auditable rule
-catalog, diagnostic explanations, language manual, and static-analysis limits.
-The fixed upstream fixture suite covers the Galileo and Mendel examples from
-that commit; `scripts/check_upstream_examples.sh` rechecks the current upstream
-example tree at the same commit before release.
+catalog, diagnostic explanations, language manual, version-aware package
+metadata, and static-analysis limits. The fixed upstream fixture suite covers
+the Galileo and Mendel v0.5 examples from that commit; the static compatibility
+catalog also recognizes legacy Gaia import/module aliases such as `gaia.lang`,
+`setting`, `contradiction`, `equivalence`, `complement`, and pre-v0.5 strategy
+helpers while warning that new packages should use the v0.5 surface.
+`scripts/check_upstream_examples.sh` rechecks the current upstream example tree
+at the same commit before release.

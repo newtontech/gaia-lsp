@@ -1,0 +1,32 @@
+{
+  "blockingDiagnosticCount": 1,
+  "diagnosticCount": 1,
+  "diagnostics": [
+    {
+      "blocking": true,
+      "code": "GAIA010",
+      "column": 15,
+      "file": "<FIXTURE>",
+      "line": 3,
+      "message": "claim() should start with non-empty string content.",
+      "range": {
+        "end": {
+          "character": 21,
+          "line": 2
+        },
+        "start": {
+          "character": 14,
+          "line": 2
+        }
+      },
+      "severity": "error",
+      "source": "gaia-lsp"
+    }
+  ],
+  "ok": false,
+  "operation": "check",
+  "path": "<FIXTURE>",
+  "software": "gaia",
+  "toolVersion": "0.5.0a3",
+  "uri": "<URI>"
+}

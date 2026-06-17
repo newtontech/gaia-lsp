@@ -54,6 +54,18 @@ def test_capabilities_manifest_matches_openqc_lsp_contract() -> None:
     assert "rule-catalog" in manifest["capabilities"]
 
 
+def test_pyproject_dev_status_matches_manifest_maturity() -> None:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    manifest = json.loads((ROOT / "lsp-capabilities.json").read_text(encoding="utf-8"))
+    maturity_to_status = {
+        "alpha": "Development Status :: 3 - Alpha",
+        "beta": "Development Status :: 4 - Beta",
+        "production": "Development Status :: 5 - Production/Stable",
+    }
+    expected = maturity_to_status[manifest["maturity"]]
+    assert expected in data["project"]["classifiers"]
+
+
 def test_vscode_extension_metadata_is_publishable() -> None:
     package = json.loads((ROOT / "gaia-vscode" / "package.json").read_text(encoding="utf-8"))
 
@@ -78,3 +90,47 @@ def test_vscode_extension_metadata_is_publishable() -> None:
         "codeAction",
         "documentSymbol",
     }
+
+
+def test_manifest_advertises_only_backed_operations_and_maturity() -> None:
+    from gaia_lsp.tool import _build_parser
+
+    manifest = json.loads((ROOT / "lsp-capabilities.json").read_text(encoding="utf-8"))
+
+    # Every advertised agentCli operation must be a real registered subcommand.
+    parser = _build_parser()
+    subparsers = parser._subparsers._group_actions[0].choices  # type: ignore[attr-defined]
+    registered = set(subparsers)
+    advertised = set(manifest["agentCli"]["operations"])
+    assert advertised, "manifest must advertise at least one CLI operation"
+    assert advertised <= registered, advertised - registered
+
+    # Maturity must not overclaim: only "production" may be described as top-tier.
+    assert manifest["maturity"] in {"alpha", "beta", "production"}
+    assert manifest["maturity"] != "production", (
+        "maturity is production only after provenance, golden fixtures, LSP smoke, "
+        "install smoke, and a real release exist"
+    )
+
+
+def test_source_provenance_ledger_is_consistent() -> None:
+    from gaia_lsp.rules import rule_catalog
+
+    manifest = json.loads((ROOT / "lsp-capabilities.json").read_text(encoding="utf-8"))
+    provenance = manifest["sourceProvenance"]
+
+    assert provenance, "manifest must declare source provenance"
+    by_id = {entry["id"]: entry for entry in provenance}
+    for entry in provenance:
+        assert {"id", "kind", "label", "url"} <= set(entry), entry
+
+    upstream = by_id["gaia-upstream"]
+    assert upstream["kind"] == "upstream_repo"
+    assert upstream["url"] == "https://github.com/SiliconEinstein/Gaia"
+    assert len(upstream["commit"]) == 40
+
+    # The rules upstream block and the manifest provenance must agree.
+    rules_upstream = rule_catalog()["upstream"]
+    assert rules_upstream["commit"] == upstream["commit"]
+    assert rules_upstream["repository"] == "SiliconEinstein/Gaia"
+    assert rules_upstream["referenceDocs"], "rules must list source reference docs"

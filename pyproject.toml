@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gaia-lsp"
-version = "0.1.0"
+version = "0.5.0a3"
 description = "Language Server Protocol and CLI diagnostics for Gaia Lang Python DSL packages"
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,7 +12,7 @@ requires-python = ">=3.9"
 authors = [{ name = "newtontech" }]
 keywords = ["gaia", "lsp", "language-server", "scientific-reasoning", "dsl"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

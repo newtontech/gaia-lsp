@@ -1,0 +1,11 @@
+{
+  "error": {
+    "kind": "missing_file",
+    "message": "file or directory not found: <FIXTURE>"
+  },
+  "ok": false,
+  "operation": "check",
+  "path": "<FIXTURE>",
+  "software": "gaia",
+  "toolVersion": "0.5.0a3"
+}

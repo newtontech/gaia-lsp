@@ -25,10 +25,13 @@
     "blocking-gate",
     "completion",
     "context",
+    "context-query",
     "definition",
+    "document-links",
     "diagnostic-engine-v1",
     "diagnostics",
     "explain",
+    "folding",
     "hover",
     "import-completion",
     "import-diagnostics",
@@ -39,12 +42,16 @@
     "package-context",
     "quick-fix",
     "references",
+    "rename",
     "rich-diagnostics",
     "rule-catalog",
     "routing",
+    "semantic-tokens",
     "signature-help",
     "source-provenance",
-    "symbols"
+    "symbols",
+    "version-aware-rules",
+    "workspace-symbols"
   ],
   "standardLsp": {
     "runtime": "pygls",
@@ -62,10 +69,17 @@
       "references",
       "signatureHelp",
       "codeAction",
-      "documentSymbol"
+      "documentSymbol",
+      "foldingRange",
+      "documentLink",
+      "rename",
+      "semanticTokens"
+    ],
+    "workspace": [
+      "workspaceSymbol"
     ]
   },
-  "agentCli": {
+    "agentCli": {
     "command": "gaia-lsp-tool",
     "operations": [
       "capabilities",
@@ -74,14 +88,20 @@
       "complete",
       "definition",
       "hover",
+      "folding",
+      "links",
       "manual",
       "explain",
       "references",
+      "rename",
       "rules",
+      "semantic-tokens",
+      "workspace-symbols",
       "symbols"
     ],
     "jsonFormat": true,
-    "failOnBlocking": true
+    "failOnBlocking": true,
+    "queryableContext": true
   },
   "editorExtensions": [
     {
@@ -104,7 +124,12 @@
         "references",
         "signatureHelp",
         "codeAction",
-        "documentSymbol"
+        "documentSymbol",
+        "workspaceSymbol",
+        "foldingRange",
+        "documentLink",
+        "rename",
+        "semanticTokens"
       ]
     }
   ],
@@ -143,6 +168,12 @@
       "kind": "official_docs",
       "label": "Gaia v0.5 Language Reference",
       "url": "https://github.com/SiliconEinstein/Gaia/blob/main/docs/for-users/language-reference.md"
+    },
+    {
+      "id": "gaia-galileo-example",
+      "kind": "upstream_example",
+      "label": "Galileo v0.5 Gaia example",
+      "url": "https://github.com/SiliconEinstein/Gaia/tree/main/examples/galileo-v0-5-gaia"
     },
     {
       "id": "gaia-mendel-example",

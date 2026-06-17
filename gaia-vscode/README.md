@@ -36,6 +36,12 @@ or use `gaiaLsp.toolArgs` for a wrapper. For example:
 }
 ```
 
+If the extension cannot find `gaia-lsp-tool`, it surfaces an actionable warning
+naming the configured `gaiaLsp.toolPath` and the install command. `gaia-lsp-tool`
+returns machine-readable JSON envelopes for every operation, so missing files,
+encoding errors, and unknown topics are reported as structured errors instead of
+crashes.
+
 ## Commands
 
 - `Gaia LSP: Check Current File`
@@ -67,5 +73,5 @@ npm run package
 The generated `.vsix` can be installed with:
 
 ```bash
-code --install-extension gaia-vscode-0.1.0.vsix
+code --install-extension gaia-vscode-0.5.0-alpha.3.vsix
 ```

@@ -597,12 +597,26 @@ function runGaiaTool(
       commandArgs,
       { cwd, maxBuffer: settings.maxBuffer },
       (error, stdout, stderr) => {
-        const exitCode = typeof error?.code === "number" ? error.code : null;
-        if (error && !stdout) {
-          reject(new Error(stderr.trim() || error.message));
+        if (error) {
+          const code = (error as { code?: number | string }).code;
+          if (code === "ENOENT") {
+            reject(
+              new Error(
+                `Gaia LSP cannot run "${settings.toolPath}". ` +
+                  'Install "gaia-lsp[lsp]" on PATH or set "gaiaLsp.toolPath" to the gaia-lsp-tool executable.'
+              )
+            );
+            return;
+          }
+          const exitCode = typeof code === "number" ? code : null;
+          if (!stdout) {
+            reject(new Error(stderr.trim() || error.message));
+            return;
+          }
+          resolve({ stdout, stderr, exitCode });
           return;
         }
-        resolve({ stdout, stderr, exitCode });
+        resolve({ stdout, stderr, exitCode: null });
       }
     );
   });

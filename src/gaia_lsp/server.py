@@ -10,12 +10,19 @@ from urllib.parse import unquote, urlparse
 
 from . import __version__
 from .analyzer import (
+    SEMANTIC_TOKEN_MODIFIERS,
+    SEMANTIC_TOKEN_TYPES,
     analyze_text,
     completion_items,
     definition_at,
+    document_links,
     document_symbols,
+    folding_ranges,
     hover_at,
     references_at,
+    rename_edits_at,
+    semantic_tokens,
+    workspace_symbols,
 )
 from .diagnostics import Diagnostic
 from .rules import explain_topic
@@ -117,6 +124,37 @@ def _import_insertion_line(text: str) -> int:
     return index
 
 
+def _range_from_payload(payload: dict[str, Any]) -> Any:
+    from lsprotocol.types import Position, Range
+
+    start = payload["start"]
+    end = payload["end"]
+    return Range(
+        start=Position(line=int(start["line"]), character=int(start["character"])),
+        end=Position(line=int(end["line"]), character=int(end["character"])),
+    )
+
+
+def _semantic_tokens_data(tokens: list[dict[str, Any]]) -> list[int]:
+    data: list[int] = []
+    previous_line = 0
+    previous_character = 0
+    for token in sorted(tokens, key=lambda item: (item["line"], item["character"])):
+        line = int(token["line"])
+        character = int(token["character"])
+        delta_line = line - previous_line
+        delta_start = character - previous_character if delta_line == 0 else character
+        token_type = SEMANTIC_TOKEN_TYPES.index(str(token["tokenType"]))
+        modifier_bits = 0
+        for modifier in token.get("tokenModifiers", []):
+            if modifier in SEMANTIC_TOKEN_MODIFIERS:
+                modifier_bits |= 1 << SEMANTIC_TOKEN_MODIFIERS.index(str(modifier))
+        data.extend([delta_line, delta_start, int(token["length"]), token_type, modifier_bits])
+        previous_line = line
+        previous_character = character
+    return data
+
+
 def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
     from lsprotocol.types import (
         COMPLETION_ITEM_RESOLVE,
@@ -125,10 +163,15 @@ def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
         TEXT_DOCUMENT_DEFINITION,
         TEXT_DOCUMENT_DID_CHANGE,
         TEXT_DOCUMENT_DID_OPEN,
+        TEXT_DOCUMENT_DOCUMENT_LINK,
         TEXT_DOCUMENT_DOCUMENT_SYMBOL,
+        TEXT_DOCUMENT_FOLDING_RANGE,
         TEXT_DOCUMENT_HOVER,
         TEXT_DOCUMENT_REFERENCES,
+        TEXT_DOCUMENT_RENAME,
+        TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
         TEXT_DOCUMENT_SIGNATURE_HELP,
+        WORKSPACE_SYMBOL,
         CodeAction,
         CodeActionKind,
         CodeActionParams,
@@ -138,8 +181,12 @@ def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
         DefinitionParams,
         DidChangeTextDocumentParams,
         DidOpenTextDocumentParams,
+        DocumentLink,
+        DocumentLinkParams,
         DocumentSymbol,
         DocumentSymbolParams,
+        FoldingRange,
+        FoldingRangeParams,
         Hover,
         HoverParams,
         Location,
@@ -149,12 +196,17 @@ def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
         Position,
         Range,
         ReferenceParams,
+        RenameParams,
+        SemanticTokens,
+        SemanticTokensParams,
         SignatureHelp,
         SignatureHelpParams,
         SignatureInformation,
         SymbolKind,
         TextEdit,
         WorkspaceEdit,
+        WorkspaceSymbol,
+        WorkspaceSymbolParams,
     )
 
     language_server = _load_language_server()(name, version)
@@ -344,6 +396,74 @@ def create_server(name: str = SERVER_NAME, version: str = __version__) -> Any:
                 )
             )
         return out
+
+    @_register(language_server, WORKSPACE_SYMBOL)
+    def workspace_symbol(params: WorkspaceSymbolParams) -> list[WorkspaceSymbol]:
+        query = params.query or ""
+        out: list[WorkspaceSymbol] = []
+        for item in workspace_symbols(Path.cwd(), query):
+            out.append(
+                WorkspaceSymbol(
+                    name=str(item["name"]),
+                    kind=SymbolKind.Variable,
+                    container_name=str(item.get("kind") or "gaia"),
+                    location=to_location(item),
+                )
+            )
+        return out
+
+    @_register(language_server, TEXT_DOCUMENT_FOLDING_RANGE)
+    def folding_range(params: FoldingRangeParams) -> list[FoldingRange]:
+        text = text_for_uri(params.text_document.uri)
+        return [
+            FoldingRange(
+                start_line=int(item["startLine"]),
+                end_line=int(item["endLine"]),
+                kind=str(item.get("kind", "region")),
+            )
+            for item in folding_ranges(text)
+        ]
+
+    @_register(language_server, TEXT_DOCUMENT_DOCUMENT_LINK)
+    def document_link(params: DocumentLinkParams) -> list[DocumentLink]:
+        uri = params.text_document.uri
+        path = _path_from_uri(uri)
+        text = text_for_uri(uri)
+        return [
+            DocumentLink(
+                range=_range_from_payload(item["range"]),
+                target=str(item["target"]),
+                tooltip=str(item.get("tooltip") or ""),
+            )
+            for item in document_links(text, path)
+        ]
+
+    @_register(language_server, TEXT_DOCUMENT_RENAME)
+    def rename(params: RenameParams) -> WorkspaceEdit:
+        path = _path_from_uri(params.text_document.uri)
+        if path is None or not path.exists():
+            return WorkspaceEdit(changes={})
+        try:
+            payload = rename_edits_at(
+                path,
+                params.position.line,
+                params.position.character,
+                params.new_name,
+            )
+        except ValueError:
+            return WorkspaceEdit(changes={})
+        changes: dict[str, list[TextEdit]] = {}
+        for uri, edits in payload["changes"].items():
+            changes[uri] = [
+                TextEdit(range=_range_from_payload(edit["range"]), new_text=str(edit["newText"]))
+                for edit in edits
+            ]
+        return WorkspaceEdit(changes=changes)
+
+    @_register(language_server, TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL)
+    def semantic_tokens_full(params: SemanticTokensParams) -> SemanticTokens:
+        text = text_for_uri(params.text_document.uri)
+        return SemanticTokens(data=_semantic_tokens_data(semantic_tokens(text)))
 
     return language_server
 

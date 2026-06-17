@@ -17,6 +17,11 @@ import or execute the target Gaia package.
   label/reference-key collisions.
 - Knowledge calls: `claim`, `note`, `question`, current relation/action verbs,
   rationale warnings, deprecated v0.5 migration helpers, and legacy `PRIORS`.
+- Imports and package context: unimported Gaia DSL helper calls, canonical Gaia
+  import snippets, and package-local relative import suggestions derived from
+  `src/<import_name>` modules.
+- Navigation: package-scoped go-to-definition and references for local Gaia
+  labels, including strict `[@label]` references in claim/note prose.
 - Priors: `register_prior` target shape, finite probability inside Gaia
   Cromwell bounds `[0.001, 0.999]`, non-empty justification, and source id.
 - Distributions: `Normal`, `LogNormal`, `Beta`, `Exponential`, `Gamma`,
@@ -33,6 +38,15 @@ import or execute the target Gaia package.
 - Bayes authoring: `gaia.engine.bayes.model` predictive-model helpers,
   `compare` model-list/exclusivity contracts, and package export recognition
   for Bayes helper claims.
+- CLI language manual: `gaia-lsp-tool manual` renders the same rule catalog as
+  a command-line language manual, and `gaia-lsp-tool explain <symbol|GAIAxxx>`
+  gives focused symbol or diagnostic explanations.
+- CLI navigation: `gaia-lsp-tool definition` and `gaia-lsp-tool references`
+  emit JSON locations for editor providers and agent workflows.
+- Upstream examples: fixed tests cover both `galileo-v0-5-gaia` and
+  `mendel-v0-5-gaia` from the pinned Gaia commit, and
+  `scripts/check_upstream_examples.sh` can re-scan the upstream examples tree
+  before a release.
 
 ## Static Limits
 
@@ -48,4 +62,6 @@ import or execute the target Gaia package.
   `gaia.engine.lang`, `gaia.engine.lang.dsl`, or `gaia.engine.bayes`.
 
 Use `gaia-lsp-tool rules` to emit the machine-readable catalog used by
-completion, hover, and diagnostics.
+completion, hover, and diagnostics. Use `gaia-lsp-tool manual` for the
+human-readable language manual and `gaia-lsp-tool explain GAIA010` for a single
+diagnostic explanation.

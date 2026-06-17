@@ -30,7 +30,26 @@ def test_capabilities_manifest_matches_openqc_lsp_contract() -> None:
     assert manifest["software"] == "gaia"
     assert manifest["repository"] == "newtontech/gaia-lsp"
     assert manifest["agentCli"]["command"] == "gaia-lsp-tool"
-    assert "rules" in manifest["agentCli"]["operations"]
+    assert set(manifest["agentCli"]["operations"]) >= {
+        "check",
+        "complete",
+        "definition",
+        "explain",
+        "hover",
+        "manual",
+        "references",
+        "rules",
+        "symbols",
+    }
+    assert set(manifest["standardLsp"]["textDocument"]) >= {
+        "completion",
+        "hover",
+        "definition",
+        "references",
+        "signatureHelp",
+        "codeAction",
+        "documentSymbol",
+    }
     assert "diagnostic-engine-v1" in manifest["capabilities"]
     assert "rule-catalog" in manifest["capabilities"]
 
@@ -49,4 +68,13 @@ def test_vscode_extension_metadata_is_publishable() -> None:
     assert extension["directory"] == "gaia-vscode"
     assert extension["extensionId"] == "newtontech.gaia-vscode"
     assert "gaia.lsp.showContext" in extension["commands"]
-    assert set(extension["providers"]) >= {"diagnostics", "completion", "hover", "documentSymbol"}
+    assert set(extension["providers"]) >= {
+        "diagnostics",
+        "completion",
+        "hover",
+        "definition",
+        "references",
+        "signatureHelp",
+        "codeAction",
+        "documentSymbol",
+    }

@@ -135,6 +135,45 @@ export function summarizeCheck(payload: GaiaCheckResult): string {
   return `Gaia LSP: ${total} non-blocking diagnostics`;
 }
 
+export function suggestedGaiaImport(diagnostic: Pick<GaiaDiagnostic, "code" | "message">): string | null {
+  if (diagnostic.code !== "GAIA015") {
+    return null;
+  }
+  const match = diagnostic.message.match(/add `([^`]+)`/);
+  if (!match) {
+    return null;
+  }
+  return match[1];
+}
+
+export function importInsertionLine(text: string): number {
+  const lines = text.split(/\r?\n/);
+  let line = 0;
+  if (lines[line]?.startsWith("#!")) {
+    line += 1;
+  }
+  if (/^#.*coding[:=]/.test(lines[line] ?? "")) {
+    line += 1;
+  }
+  line = skipModuleDocstring(lines, line);
+  while (line < lines.length && lines[line].trim() === "") {
+    line += 1;
+  }
+  let lastImportLine = -1;
+  for (let index = line; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (trimmed.startsWith("import ") || trimmed.startsWith("from ")) {
+      lastImportLine = index;
+      continue;
+    }
+    if (trimmed === "") {
+      continue;
+    }
+    break;
+  }
+  return lastImportLine >= 0 ? lastImportLine + 1 : line;
+}
+
 function clampRange(range: GaiaRange): GaiaRange {
   const start = {
     line: Math.max(Number(range.start.line), 0),
@@ -148,4 +187,21 @@ function clampRange(range: GaiaRange): GaiaRange {
     end.character = start.character + 1;
   }
   return { start, end };
+}
+
+function skipModuleDocstring(lines: string[], startLine: number): number {
+  const first = lines[startLine]?.trimStart();
+  if (!first?.startsWith('"""') && !first?.startsWith("'''")) {
+    return startLine;
+  }
+  const quote = first.startsWith('"""') ? '"""' : "'''";
+  if (first.slice(3).includes(quote)) {
+    return startLine + 1;
+  }
+  for (let index = startLine + 1; index < lines.length; index += 1) {
+    if (lines[index].includes(quote)) {
+      return index + 1;
+    }
+  }
+  return startLine;
 }

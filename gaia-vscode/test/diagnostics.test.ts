@@ -3,13 +3,17 @@ import test from "node:test";
 
 import {
   groupDiagnosticsByFile,
+  importInsertionLine,
   normalizeRange,
   parseGaiaCheckOutput,
   severityName,
+  suggestedGaiaImport,
   summarizeCheck
 } from "../src/diagnostics";
 import {
   parseCompletionOutput,
+  parseLocationsOutput,
+  parseExplainOutput,
   parseHoverOutput,
   parseSymbolsOutput
 } from "../src/language";
@@ -107,7 +111,17 @@ test("parses language capability payloads from gaia-lsp-tool", () => {
     JSON.stringify({
       software: "gaia",
       operation: "complete",
-      items: [{ label: "claim", detail: "claim(content)" }]
+      items: [
+        {
+          label: "from gaia.engine.lang import claim, note, question",
+          detail: "Core Gaia knowledge import",
+          documentation: "Import claim(), note(), and question().",
+          insertText: "from gaia.engine.lang import claim, note, question",
+          kind: "snippet",
+          sortText: "000"
+        },
+        { label: "claim", detail: "claim(content)", kind: "function" }
+      ]
     })
   );
   const hover = parseHoverOutput(
@@ -125,7 +139,73 @@ test("parses language capability payloads from gaia-lsp-tool", () => {
     })
   );
 
-  assert.equal(completions[0].label, "claim");
+  assert.equal(completions[0].label, "from gaia.engine.lang import claim, note, question");
+  assert.equal(completions[0].insertText, "from gaia.engine.lang import claim, note, question");
+  assert.equal(completions[0].kind, "snippet");
+  assert.equal(completions[1].label, "claim");
   assert.equal(hover?.contents, "Declare a falsifiable Gaia claim.");
   assert.equal(symbols[0].name, "aristotle_model");
+});
+
+test("parses explain payloads for signature help", () => {
+  const explain = parseExplainOutput(
+    JSON.stringify({
+      operation: "explain",
+      kind: "symbol",
+      symbol: {
+        label: "claim",
+        detail: "claim(content, proposition=None)",
+        documentation: "Declare a falsifiable Gaia claim."
+      }
+    })
+  );
+
+  assert.equal(explain.kind, "symbol");
+  assert.equal(explain.symbol?.label, "claim");
+  assert.equal(explain.symbol?.detail, "claim(content, proposition=None)");
+});
+
+test("extracts GAIA015 import quick fixes", () => {
+  const diagnostic = {
+    code: "GAIA015",
+    message: "claim() looks like Gaia DSL but is not imported; add `from gaia.engine.lang import claim`.",
+    severity: "error"
+  };
+
+  assert.equal(suggestedGaiaImport(diagnostic), "from gaia.engine.lang import claim");
+  assert.equal(
+    importInsertionLine([
+      '"""Module docs."""',
+      "",
+      "import os",
+      "from gaia.engine.lang import note",
+      "",
+      "claim('Missing import')"
+    ].join("\n")),
+    4
+  );
+  assert.equal(importInsertionLine("claim('Missing import')\n"), 0);
+});
+
+test("parses definition and references location payloads", () => {
+  const locations = parseLocationsOutput(
+    JSON.stringify({
+      operation: "definition",
+      definitions: [
+        {
+          name: "daily_observation",
+          file: "/tmp/pkg/src/pkg/__init__.py",
+          line: 4,
+          column: 1,
+          endLine: 4,
+          endColumn: 18
+        }
+      ]
+    }),
+    "definitions"
+  );
+
+  assert.equal(locations[0].name, "daily_observation");
+  assert.equal(locations[0].file, "/tmp/pkg/src/pkg/__init__.py");
+  assert.equal(locations[0].line, 4);
 });

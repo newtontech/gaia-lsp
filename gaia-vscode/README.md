@@ -5,8 +5,18 @@ Lang Python DSL packages.
 
 The extension does not import or execute the target Gaia package. It shells out
 to `gaia-lsp-tool check` and converts the JSON diagnostic envelope into VS Code
-diagnostics. Completion, hover, document symbols, rule catalog, and authoring
-context are also served through `gaia-lsp-tool`.
+diagnostics. Completion, hover, go-to-definition, find-references, document
+symbols, rule catalog, and authoring context are also served through
+`gaia-lsp-tool`. The language manual command opens the same
+`gaia-lsp-tool manual --format markdown` output that is available from the
+terminal.
+Completions include Gaia DSL symbols, signature help, canonical import snippets such as
+`from gaia.engine.lang import claim, note, question`, and package-local relative
+imports when the current file is inside a Gaia package.
+When `GAIA015` reports a missing Gaia import, the extension provides a Quick Fix
+that inserts the recommended import into the module import block.
+Go to Definition and Find References resolve package-local Gaia labels across
+`src/<import_name>/**/*.py`, including strict `[@label]` prose references.
 
 ## Requirements
 
@@ -31,7 +41,11 @@ or use `gaiaLsp.toolArgs` for a wrapper. For example:
 - `Gaia LSP: Check Current File`
 - `Gaia LSP: Check Workspace`
 - `Gaia LSP: Show Authoring Context`
+- `Gaia LSP: Show Language Manual`
 - `Gaia LSP: Show Rule Catalog`
+
+Editor providers: diagnostics, completion, hover, signature help, Quick Fix,
+document symbols, Go to Definition, and Find References.
 
 ## Settings
 

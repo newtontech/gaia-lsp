@@ -27,6 +27,7 @@ For local development:
 python3 -m pip install -e ".[dev]"
 python3 -m pytest
 ruff check src tests
+mypy src
 ```
 
 ## VS Code Extension
@@ -34,8 +35,9 @@ ruff check src tests
 The VS Code extension lives in `gaia-vscode/` and publishes as
 `newtontech.gaia-vscode`. It calls the same static `gaia-lsp-tool` JSON CLI and
 renders Gaia diagnostics in the Problems panel. The extension also wires Gaia
-completion, hover, document-symbol, rule-catalog, and authoring-context
-features through the same CLI surface.
+completion, hover, go-to-definition, find-references, signature-help, quick-fix
+code actions, document-symbol, rule-catalog, and authoring-context features
+through the same CLI surface.
 
 Local package check:
 
@@ -44,6 +46,18 @@ cd gaia-vscode
 npm ci
 npm test
 npm run package
+```
+
+Release-level verification:
+
+```bash
+ruff check src tests
+mypy src
+python3 -m pytest
+python3 -m build
+twine check dist/*
+(cd gaia-vscode && npm run lint && npm test && npm run package)
+scripts/check_upstream_examples.sh
 ```
 
 Marketplace publishing is configured in `.github/workflows/publish-vscode.yml`.
@@ -67,8 +81,25 @@ gaia-lsp-tool capabilities
 gaia-lsp-tool check path/to/package --fail-on-blocking
 gaia-lsp-tool complete path/to/package/src/pkg/__init__.py
 gaia-lsp-tool hover path/to/package/src/pkg/__init__.py --line 3 --character 10
+gaia-lsp-tool definition path/to/package/src/pkg/__init__.py --line 3 --character 10
+gaia-lsp-tool references path/to/package/src/pkg/__init__.py --line 3 --character 10
+gaia-lsp-tool symbols path/to/package/src/pkg/__init__.py
 gaia-lsp-tool rules
+gaia-lsp-tool manual
+gaia-lsp-tool manual --section diagnostics
+gaia-lsp-tool explain GAIA010
+gaia-lsp-tool explain claim
 ```
+
+`manual` renders a CLI-readable Gaia language manual sourced from the upstream
+Gaia README, language reference, CLI reference, and public `gaia.engine.lang`
+surface. `explain` drills into one Gaia symbol or one diagnostic code. `rules`
+keeps the same information machine-readable for agents and editor extensions.
+`complete` includes Gaia import snippets and package-local relative import
+suggestions when the path is inside a Gaia package. `context` returns the same
+completion list plus package/module/export metadata for agent workflows.
+`definition` and `references` resolve local Gaia labels across the package
+source tree, including strict `[@label]` prose references.
 
 Start the LSP server on stdio:
 
@@ -84,6 +115,7 @@ gaia-lsp --stdio
 - `GAIA012`: Reviewable reasoning call missing a non-empty `rationale`.
 - `GAIA013`: `note` or `question` incorrectly carries `prior=`.
 - `GAIA014`: Invalid `claim(..., proposition/formula/tolerance=...)` shape.
+- `GAIA015`: A Gaia DSL helper such as `claim()` is used without an import.
 - `GAIA020`: Deprecated `context` or `setting`; use `note`.
 - `GAIA021`: Legacy `contradiction`; use `contradict`.
 - `GAIA022`: Legacy strategy helper; spell the v0.5+ graph explicitly.
@@ -130,5 +162,10 @@ The diagnostic rules target `SiliconEinstein/Gaia` commit
 `6354a3425fdadcf6f7e5f557dd3bc30f36d3297e`, including package metadata,
 curated exports, CSL references, current DSL helpers, distribution factories,
 measurement observations, artifact metadata, scaffold actions, `register_prior`,
-and strict `[@key]` references. See `docs/GAIA_RULE_COVERAGE.md` and
-`gaia-lsp-tool rules` for the auditable rule catalog and static-analysis limits.
+strict `[@key]` references, CLI authoring groups, and the public
+`gaia.engine.lang` authoring surface. See `docs/GAIA_RULE_COVERAGE.md`,
+`gaia-lsp-tool rules`, and `gaia-lsp-tool manual` for the auditable rule
+catalog, diagnostic explanations, language manual, and static-analysis limits.
+The fixed upstream fixture suite covers the Galileo and Mendel examples from
+that commit; `scripts/check_upstream_examples.sh` rechecks the current upstream
+example tree at the same commit before release.

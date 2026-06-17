@@ -1,7 +1,7 @@
 {
   "name": "gaia-vscode",
   "displayName": "Gaia LSP",
-  "description": "VS Code diagnostics for Gaia Lang Python DSL packages using gaia-lsp static checks.",
+  "description": "VS Code diagnostics, completion, hover, and navigation for Gaia Lang Python DSL packages using gaia-lsp static checks.",
   "version": "0.1.0",
   "publisher": "newtontech",
   "license": "MIT",
@@ -16,7 +16,8 @@
     "dsl",
     "python",
     "scientific-computing",
-    "diagnostics"
+    "diagnostics",
+    "navigation"
   ],
   "homepage": "https://github.com/newtontech/gaia-lsp/tree/main/gaia-vscode",
   "bugs": {
@@ -45,6 +46,7 @@
     "onCommand:gaia.lsp.checkFile",
     "onCommand:gaia.lsp.checkWorkspace",
     "onCommand:gaia.lsp.showContext",
+    "onCommand:gaia.lsp.showManual",
     "onCommand:gaia.lsp.showRules"
   ],
   "main": "./out/src/extension.js",
@@ -77,6 +79,11 @@
         "category": "Gaia"
       },
       {
+        "command": "gaia.lsp.showManual",
+        "title": "Gaia LSP: Show Language Manual",
+        "category": "Gaia"
+      },
+      {
         "command": "gaia.lsp.showRules",
         "title": "Gaia LSP: Show Rule Catalog",
         "category": "Gaia"
@@ -106,6 +113,9 @@
         },
         {
           "command": "gaia.lsp.showContext"
+        },
+        {
+          "command": "gaia.lsp.showManual"
         },
         {
           "command": "gaia.lsp.showRules"

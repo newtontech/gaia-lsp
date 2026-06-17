@@ -12,6 +12,29 @@ from gaia_lsp import cli
 from gaia_lsp.tool import check_path, main
 
 
+def write_minimal_gaia_package(root: Path) -> Path:
+    package = root / "src" / "sample_v0_5"
+    package.mkdir(parents=True)
+    (root / "pyproject.toml").write_text(
+        """
+[project]
+name = "sample-v0-5-gaia"
+version = "0.1.0"
+
+[tool.gaia]
+type = "knowledge-package"
+""",
+        encoding="utf-8",
+    )
+    init_py = package / "__init__.py"
+    init_py.write_text(
+        "from gaia.engine.lang import claim\nknown = claim('Known')\n",
+        encoding="utf-8",
+    )
+    (package / "priors.py").write_text("from gaia.engine.lang import register_prior\n")
+    return init_py
+
+
 def test_check_path_returns_agent_json_envelope(tmp_path: Path) -> None:
     sample = tmp_path / "sample.py"
     sample.write_text(
@@ -132,18 +155,78 @@ def test_tool_operations_emit_expected_json(tmp_path: Path, capsys) -> None:  # 
     rules = json.loads(capsys.readouterr().out)
     assert rules["upstream"]["repository"] == "SiliconEinstein/Gaia"
     assert any(item["label"] == "BetaBinomial" for item in rules["symbols"])
+    assert any(item["code"] == "GAIA010" for item in rules["diagnostics"])
 
     assert main(["complete", str(sample)]) == 0
-    assert json.loads(capsys.readouterr().out)["items"]
+    completions = json.loads(capsys.readouterr().out)["items"]
+    assert any(
+        item["label"] == "from gaia.engine.lang import claim, note, question"
+        for item in completions
+    )
 
     assert main(["context", str(sample)]) == 0
     assert json.loads(capsys.readouterr().out)["symbols"][0]["name"] == "known"
 
-    assert main(["context", str(tmp_path)]) == 0
-    assert json.loads(capsys.readouterr().out)["symbols"] == []
+    package_root = tmp_path / "sample-v0-5-gaia"
+    init_py = write_minimal_gaia_package(package_root)
+
+    assert main(["context", str(package_root)]) == 0
+    context = json.loads(capsys.readouterr().out)
+    assert context["package"]["importName"] == "sample_v0_5"
+    assert context["symbols"][0]["name"] == "known"
+    assert any(item["label"] == "from .priors import *" for item in context["completionItems"])
+
+    assert main(["context", str(init_py)]) == 0
+    assert json.loads(capsys.readouterr().out)["package"]["projectName"] == "sample-v0-5-gaia"
 
     assert main(["hover", str(sample), "--line", "1", "--character", "9"]) == 0
     assert "probability" in json.loads(capsys.readouterr().out)["contents"].lower()
 
     assert main(["symbols", str(sample)]) == 0
     assert json.loads(capsys.readouterr().out)["symbols"][0]["kind"] == "claim"
+
+    assert main(["definition", str(init_py), "--line", "1", "--character", "1"]) == 0
+    definition_payload = json.loads(capsys.readouterr().out)
+    assert definition_payload["operation"] == "definition"
+    assert definition_payload["definitions"][0]["name"] == "known"
+
+    assert main(["references", str(init_py), "--line", "1", "--character", "1"]) == 0
+    references_payload = json.loads(capsys.readouterr().out)
+    assert references_payload["operation"] == "references"
+    assert references_payload["references"]
+
+
+def test_tool_manual_and_explain_commands_emit_language_reference(
+    tmp_path: Path, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    sample = tmp_path / "sample.py"
+    sample.write_text(
+        "from gaia.engine.lang import claim\nknown = claim('Known')\n",
+        encoding="utf-8",
+    )
+
+    assert main(["manual"]) == 0
+    manual = capsys.readouterr().out
+    assert "# Gaia LSP Language Manual" in manual
+    assert "## Authoring Surface" in manual
+    assert "gaia-lsp-tool hover" in manual
+    assert "GAIA010" in manual
+
+    assert main(["manual", "--format", "json", "--section", "diagnostics"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation"] == "manual"
+    assert [section["id"] for section in payload["sections"]] == ["diagnostics"]
+
+    assert main(["explain", "claim"]) == 0
+    claim_payload = json.loads(capsys.readouterr().out)
+    assert claim_payload["operation"] == "explain"
+    assert claim_payload["kind"] == "symbol"
+    assert claim_payload["symbol"]["label"] == "claim"
+
+    assert main(["explain", "GAIA010"]) == 0
+    diagnostic_payload = json.loads(capsys.readouterr().out)
+    assert diagnostic_payload["kind"] == "diagnostic"
+    assert diagnostic_payload["diagnostic"]["severity"] == "error"
+
+    assert main(["hover", str(sample), "--line", "1", "--character", "9"]) == 0
+    assert "claim(content" in json.loads(capsys.readouterr().out)["contents"]

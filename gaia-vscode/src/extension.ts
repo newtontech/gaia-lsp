@@ -6,15 +6,20 @@ import {
   DiagnosticSeverityName,
   DiagnosticTransfer,
   groupDiagnosticsByFile,
+  importInsertionLine,
   parseGaiaCheckOutput,
+  suggestedGaiaImport,
   summarizeCheck
 } from "./diagnostics";
 import {
   GaiaCompletionItem,
   GaiaHoverResult,
+  GaiaLocationItem,
   GaiaSymbol,
   parseCompletionOutput,
+  parseExplainOutput,
   parseHoverOutput,
+  parseLocationsOutput,
   parseSymbolsOutput
 } from "./language";
 
@@ -57,6 +62,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("gaia.lsp.checkFile", checkCurrentFile),
     vscode.commands.registerCommand("gaia.lsp.checkWorkspace", checkWorkspace),
     vscode.commands.registerCommand("gaia.lsp.showContext", showAuthoringContext),
+    vscode.commands.registerCommand("gaia.lsp.showManual", showLanguageManual),
     vscode.commands.registerCommand("gaia.lsp.showRules", showRuleCatalog),
     vscode.languages.registerCompletionItemProvider(
       gaiaDocumentSelector,
@@ -69,6 +75,29 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.languages.registerHoverProvider(gaiaDocumentSelector, {
       provideHover: provideGaiaHover
     }),
+    vscode.languages.registerDefinitionProvider(gaiaDocumentSelector, {
+      provideDefinition: provideGaiaDefinition
+    }),
+    vscode.languages.registerReferenceProvider(gaiaDocumentSelector, {
+      provideReferences: provideGaiaReferences
+    }),
+    vscode.languages.registerSignatureHelpProvider(
+      gaiaDocumentSelector,
+      {
+        provideSignatureHelp: provideGaiaSignatureHelp
+      },
+      "(",
+      ","
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      gaiaDocumentSelector,
+      {
+        provideCodeActions: provideGaiaCodeActions
+      },
+      {
+        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix]
+      }
+    ),
     vscode.languages.registerDocumentSymbolProvider(gaiaDocumentSelector, {
       provideDocumentSymbols: provideGaiaDocumentSymbols
     }),
@@ -170,6 +199,19 @@ async function showRuleCatalog(): Promise<void> {
   }
 }
 
+async function showLanguageManual(): Promise<void> {
+  const settings = readSettings();
+  const anchor = vscode.window.activeTextEditor?.document.uri;
+  try {
+    const result = await runGaiaTool(["manual", "--format", "markdown"], anchor, settings);
+    await showMarkdownDocument(result.stdout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    output.appendLine(message);
+    void vscode.window.showWarningMessage(message);
+  }
+}
+
 async function showAuthoringContext(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.document.uri.scheme !== "file") {
@@ -232,6 +274,99 @@ async function provideGaiaHover(
   }
 }
 
+async function provideGaiaDefinition(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): Promise<vscode.Location[]> {
+  if (!isGaiaCandidate(document)) {
+    return [];
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(
+      [
+        "definition",
+        document.uri.fsPath,
+        "--line",
+        String(position.line),
+        "--character",
+        String(position.character)
+      ],
+      document.uri,
+      settings
+    );
+    return parseLocationsOutput(result.stdout, "definitions").map(toVsCodeLocation);
+  } catch (error) {
+    trace(settings, providerErrorMessage("definition", error));
+    return [];
+  }
+}
+
+async function provideGaiaReferences(
+  document: vscode.TextDocument,
+  position: vscode.Position,
+  _context: vscode.ReferenceContext
+): Promise<vscode.Location[]> {
+  if (!isGaiaCandidate(document)) {
+    return [];
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(
+      [
+        "references",
+        document.uri.fsPath,
+        "--line",
+        String(position.line),
+        "--character",
+        String(position.character)
+      ],
+      document.uri,
+      settings
+    );
+    return parseLocationsOutput(result.stdout, "references").map(toVsCodeLocation);
+  } catch (error) {
+    trace(settings, providerErrorMessage("references", error));
+    return [];
+  }
+}
+
+async function provideGaiaSignatureHelp(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): Promise<vscode.SignatureHelp | null> {
+  if (!isGaiaCandidate(document)) {
+    return null;
+  }
+  const symbol = functionNameBeforeCall(document, position);
+  if (!symbol) {
+    return null;
+  }
+  const settings = readSettings();
+  try {
+    const result = await runGaiaTool(["explain", symbol], document.uri, settings);
+    const explain = parseExplainOutput(result.stdout);
+    if (explain.kind !== "symbol" || !explain.symbol?.detail) {
+      return null;
+    }
+    const help = new vscode.SignatureHelp();
+    const signature = new vscode.SignatureInformation(
+      explain.symbol.detail,
+      explain.symbol.documentation
+        ? new vscode.MarkdownString(explain.symbol.documentation)
+        : undefined
+    );
+    signature.parameters = signatureParameters(explain.symbol.detail);
+    help.signatures = [signature];
+    help.activeSignature = 0;
+    help.activeParameter = activeParameterIndex(document, position);
+    return help;
+  } catch (error) {
+    trace(settings, providerErrorMessage("signatureHelp", error));
+    return null;
+  }
+}
+
 async function provideGaiaDocumentSymbols(
   document: vscode.TextDocument
 ): Promise<vscode.DocumentSymbol[]> {
@@ -248,6 +383,67 @@ async function provideGaiaDocumentSymbols(
   }
 }
 
+async function provideGaiaCodeActions(
+  document: vscode.TextDocument,
+  _range: vscode.Range,
+  context: vscode.CodeActionContext
+): Promise<vscode.CodeAction[]> {
+  if (!isGaiaCandidate(document)) {
+    return [];
+  }
+  const actions: vscode.CodeAction[] = [];
+  for (const diagnostic of context.diagnostics) {
+    const importStatement = suggestedGaiaImport({
+      code: String(diagnostic.code ?? ""),
+      message: diagnostic.message
+    });
+    if (!importStatement || document.getText().includes(importStatement)) {
+      continue;
+    }
+    const action = new vscode.CodeAction(
+      `Add Gaia import: ${importStatement}`,
+      vscode.CodeActionKind.QuickFix
+    );
+    action.diagnostics = [diagnostic];
+    action.isPreferred = true;
+    const edit = new vscode.WorkspaceEdit();
+    const line = importInsertionLine(document.getText());
+    edit.insert(document.uri, new vscode.Position(line, 0), `${importStatement}\n`);
+    action.edit = edit;
+    actions.push(action);
+  }
+  return actions;
+}
+
+function functionNameBeforeCall(document: vscode.TextDocument, position: vscode.Position): string | null {
+  const currentLine = document.lineAt(position.line).text.slice(0, position.character);
+  const match = currentLine.match(/([A-Za-z_][A-Za-z0-9_]*)\([^()]*$/);
+  return match ? match[1] : null;
+}
+
+function signatureParameters(detail: string): vscode.ParameterInformation[] {
+  const start = detail.indexOf("(");
+  const end = detail.lastIndexOf(")");
+  if (start < 0 || end <= start) {
+    return [];
+  }
+  return detail
+    .slice(start + 1, end)
+    .split(",")
+    .map((parameter) => parameter.trim())
+    .filter((parameter) => parameter.length > 0)
+    .map((parameter) => new vscode.ParameterInformation(parameter));
+}
+
+function activeParameterIndex(document: vscode.TextDocument, position: vscode.Position): number {
+  const currentLine = document.lineAt(position.line).text.slice(0, position.character);
+  const open = currentLine.lastIndexOf("(");
+  if (open < 0) {
+    return 0;
+  }
+  return currentLine.slice(open + 1).split(",").length - 1;
+}
+
 function applyDiagnostics(payload: ReturnType<typeof parseGaiaCheckOutput>, target: vscode.Uri): void {
   const grouped = groupDiagnosticsByFile(payload, payload.path || target.fsPath);
   for (const [filePath, items] of Object.entries(grouped)) {
@@ -261,16 +457,51 @@ function applyDiagnostics(payload: ReturnType<typeof parseGaiaCheckOutput>, targ
 }
 
 function toVsCodeCompletionItem(item: GaiaCompletionItem): vscode.CompletionItem {
-  const completion = new vscode.CompletionItem(item.label, vscode.CompletionItemKind.Function);
+  const completion = new vscode.CompletionItem(item.label, toVsCodeCompletionKind(item.kind));
   completion.detail = item.detail;
   completion.documentation = item.documentation
     ? new vscode.MarkdownString(item.documentation)
     : undefined;
+  completion.sortText = item.sortText;
+  if (item.insertText) {
+    completion.insertText = item.kind === "snippet"
+      ? new vscode.SnippetString(item.insertText)
+      : item.insertText;
+  }
   return completion;
+}
+
+function toVsCodeCompletionKind(kind: string | undefined): vscode.CompletionItemKind {
+  switch (kind) {
+    case "class":
+      return vscode.CompletionItemKind.Class;
+    case "module":
+      return vscode.CompletionItemKind.Module;
+    case "snippet":
+      return vscode.CompletionItemKind.Snippet;
+    case "variable":
+      return vscode.CompletionItemKind.Variable;
+    default:
+      return vscode.CompletionItemKind.Function;
+  }
 }
 
 function toVsCodeHover(hover: GaiaHoverResult): vscode.Hover {
   return new vscode.Hover(new vscode.MarkdownString(hover.contents));
+}
+
+function toVsCodeLocation(item: GaiaLocationItem): vscode.Location {
+  const line = Math.max(item.line - 1, 0);
+  const character = Math.max(item.column - 1, 0);
+  const endLine = Math.max((item.endLine ?? item.line) - 1, line);
+  const endCharacter = Math.max((item.endColumn ?? item.column + item.name.length) - 1, character + 1);
+  return new vscode.Location(
+    vscode.Uri.file(item.file),
+    new vscode.Range(
+      new vscode.Position(line, character),
+      new vscode.Position(endLine, endCharacter)
+    )
+  );
 }
 
 function toVsCodeDocumentSymbol(symbol: GaiaSymbol): vscode.DocumentSymbol {
@@ -326,6 +557,14 @@ async function showJsonDocument(stdout: string): Promise<void> {
   const document = await vscode.workspace.openTextDocument({
     content: formatted,
     language: "json"
+  });
+  await vscode.window.showTextDocument(document, { preview: true });
+}
+
+async function showMarkdownDocument(stdout: string): Promise<void> {
+  const document = await vscode.workspace.openTextDocument({
+    content: stdout,
+    language: "markdown"
   });
   await vscode.window.showTextDocument(document, { preview: true });
 }

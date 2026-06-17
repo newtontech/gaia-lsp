@@ -44,6 +44,8 @@ from .rules import (
     RELATION_CALLS,
     SCAFFOLD_CALLS,
     SYMBOLS,
+    import_completion_items,
+    preferred_import_for_symbol,
 )
 
 GAIA_MODULES = {
@@ -131,6 +133,7 @@ class _ImportContext:
 @dataclass
 class _FileIndex:
     imports: _ImportContext
+    bound_names: set[str] = field(default_factory=set)
     exportable_names: set[str] = field(default_factory=set)
     distribution_names: set[str] = field(default_factory=set)
     variable_names: set[str] = field(default_factory=set)
@@ -255,13 +258,75 @@ def analyze_text(
     return _sort_diagnostics(collector.diagnostics)
 
 
-def completion_items() -> list[dict[str, str]]:
-    """Return editor completion entries for the Gaia authoring surface."""
+def completion_items(path: Path | None = None) -> list[dict[str, str]]:
+    """Return editor completion entries for Gaia symbols and package imports."""
 
-    return [
-        {"label": label, "detail": info.detail, "documentation": info.documentation}
+    items = import_completion_items()
+    items.extend(
+        {
+            "label": label,
+            "detail": info.detail,
+            "documentation": info.documentation,
+            "kind": _completion_kind_for_group(info.group),
+            "sortText": f"100_{label}",
+        }
         for label, info in sorted(SYMBOLS.items())
+    )
+    if path is not None:
+        items.extend(_local_import_completion_items(path))
+    return items
+
+
+def package_context(path: Path) -> dict[str, Any]:
+    """Return static Gaia package/module context for a file or package directory."""
+
+    package_root = _find_gaia_package_root(path.resolve())
+    if package_root is None:
+        return {}
+    config, source_root, diagnostics = _check_package_structure(package_root)
+    project_config = config.get("project", {}) if isinstance(config.get("project"), dict) else {}
+    project_name = project_config.get("name")
+    import_name = _project_import_name(project_name)
+    package_index = _PackageIndex.build(package_root)
+    modules = [
+        _module_context_item(file_path, index, source_root, import_name)
+        for file_path, index in sorted(package_index.file_indices.items())
     ]
+    return {
+        "root": str(package_root),
+        "projectName": project_name if isinstance(project_name, str) else None,
+        "importName": import_name,
+        "sourceRoot": str(source_root) if source_root else None,
+        "modules": modules,
+        "referenceKeys": sorted(package_index.reference_info.keys),
+        "diagnostics": [item.to_json() for item in diagnostics],
+    }
+
+
+def definition_at(path: Path, line: int, character: int) -> list[dict[str, Any]]:
+    """Return Gaia symbol definitions for the word at a 0-based position."""
+
+    path = path.resolve()
+    text = path.read_text(encoding="utf-8")
+    symbol = _word_at(text, line, character)
+    if not symbol:
+        return []
+    return [
+        item
+        for item in _symbol_definitions_for_scope(path)
+        if item["name"] == symbol or item.get("label") == symbol
+    ]
+
+
+def references_at(path: Path, line: int, character: int) -> list[dict[str, Any]]:
+    """Return Gaia/Python references for the word at a 0-based position."""
+
+    path = path.resolve()
+    text = path.read_text(encoding="utf-8")
+    symbol = _word_at(text, line, character)
+    if not symbol:
+        return []
+    return _symbol_references_for_scope(path, symbol)
 
 
 def hover(symbol: str) -> str:
@@ -321,6 +386,361 @@ def document_symbols(text: str) -> list[dict[str, Any]]:
     return symbols
 
 
+def _completion_kind_for_group(group: str) -> str:
+    if group in {"formula", "distribution", "runtime"}:
+        return "class"
+    if group in {"introspection"}:
+        return "function"
+    return "function"
+
+
+def _local_import_completion_items(path: Path) -> list[dict[str, str]]:
+    context = package_context(path)
+    source_root_value = context.get("sourceRoot")
+    if not source_root_value:
+        return []
+    source_root = Path(str(source_root_value))
+    target = path.resolve()
+    current_package_parts = _current_package_parts(target, source_root)
+    items: list[dict[str, str]] = []
+    for module in context.get("modules", []):
+        module_path = Path(str(module["path"]))
+        if module_path == target:
+            continue
+        try:
+            relative = module_path.relative_to(source_root)
+        except ValueError:
+            continue
+        import_target = _relative_import_target(current_package_parts, relative)
+        if not import_target:
+            continue
+        label = f"from {import_target} import *"
+        items.append(
+            {
+                "label": label,
+                "detail": f"Import local Gaia module {module['module']}",
+                "documentation": "Package-local import hint derived from the Gaia source tree.",
+                "insertText": label,
+                "kind": "module",
+                "sortText": f"010_local_import_{module['module']}",
+            }
+        )
+    deduped: dict[str, dict[str, str]] = {item["label"]: item for item in items}
+    return [deduped[label] for label in sorted(deduped)]
+
+
+def _current_package_parts(target: Path, source_root: Path) -> tuple[str, ...]:
+    if target.is_dir():
+        current = target
+    elif target.name == "__init__.py":
+        current = target.parent
+    else:
+        current = target.parent
+    try:
+        return current.relative_to(source_root).parts
+    except ValueError:
+        return ()
+
+
+def _relative_import_target(current_package_parts: tuple[str, ...], relative: Path) -> str:
+    if relative.name == "__init__.py":
+        destination_parts = relative.parent.parts
+    else:
+        destination_parts = relative.with_suffix("").parts
+    if destination_parts == current_package_parts:
+        return ""
+
+    common = 0
+    for left, right in zip(current_package_parts, destination_parts):
+        if left != right:
+            break
+        common += 1
+
+    upward_levels = len(current_package_parts) - common
+    prefix = "." * (upward_levels + 1)
+    suffix = ".".join(destination_parts[common:])
+    return f"{prefix}{suffix}" if suffix else prefix
+
+
+def _find_gaia_package_root(path: Path) -> Path | None:
+    start = path if path.is_dir() else path.parent
+    for directory in [start, *start.parents]:
+        pyproject = directory / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                config = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+            except Exception:
+                return directory
+            project_config = config.get("project", {})
+            project_name = project_config.get("name") if isinstance(project_config, dict) else None
+            gaia_section = (
+                config.get("tool", {}).get("gaia", {})
+                if isinstance(config.get("tool"), dict)
+                else {}
+            )
+            if gaia_section or (isinstance(project_name, str) and project_name.endswith("-gaia")):
+                return directory
+        if (directory / ".git").exists():
+            break
+    return None
+
+
+def _module_context_item(
+    file_path: Path,
+    index: _FileIndex,
+    source_root: Path | None,
+    import_name: str | None,
+) -> dict[str, Any]:
+    module = file_path.stem
+    if source_root is not None and import_name:
+        try:
+            relative = file_path.relative_to(source_root)
+        except ValueError:
+            module_parts: tuple[str, ...] = ()
+        else:
+            if relative.name == "__init__.py":
+                module_parts = relative.parts[:-1]
+            else:
+                module_parts = relative.with_suffix("").parts
+        module = ".".join((import_name, *module_parts))
+    return {
+        "module": module,
+        "path": str(file_path),
+        "exports": sorted(index.exportable_names),
+        "labels": sorted(index.label_names),
+        "distributions": sorted(index.distribution_names),
+        "variables": sorted(index.variable_names),
+        "domains": sorted(index.domain_names),
+    }
+
+
+def _project_import_name(project_name: Any) -> str | None:
+    if not isinstance(project_name, str) or not project_name:
+        return None
+    return project_name.removesuffix("-gaia").replace("-", "_")
+
+
+def _top_level_bound_names(tree: ast.Module) -> set[str]:
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            names.update(_assignment_target_names(node))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".", 1)[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    names.add(alias.asname or alias.name)
+    return names
+
+
+def _word_at(text: str, line: int, character: int) -> str:
+    lines = text.splitlines()
+    if line < 0 or line >= len(lines):
+        return ""
+    current = lines[line]
+    character = min(max(character, 0), len(current))
+    start = character
+    while start > 0 and (current[start - 1].isalnum() or current[start - 1] == "_"):
+        start -= 1
+    end = character
+    while end < len(current) and (current[end].isalnum() or current[end] == "_"):
+        end += 1
+    return current[start:end]
+
+
+def _symbol_definitions_for_scope(path: Path) -> list[dict[str, Any]]:
+    root = _find_gaia_package_root(path)
+    files = _python_files_for_scope(path, root)
+    definitions: list[dict[str, Any]] = []
+    for file_path in files:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for symbol in document_symbols(text):
+            definitions.append(_location_from_symbol(symbol, file_path))
+        definitions.extend(_label_definitions_from_text(text, file_path))
+    return definitions
+
+
+def _symbol_references_for_scope(path: Path, symbol: str) -> list[dict[str, Any]]:
+    root = _find_gaia_package_root(path)
+    files = _python_files_for_scope(path, root)
+    references: list[dict[str, Any]] = []
+    for file_path in files:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(text)
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == symbol:
+                references.append(_location_from_ast(symbol, "name", node, file_path))
+            elif _gaia_label_value(node, tree) == symbol:
+                references.append(_location_from_label(symbol, "label-definition", node, file_path))
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                references.extend(_reference_locations_in_string(symbol, node, file_path, text))
+    return sorted(references, key=lambda item: (item["file"], item["line"], item["column"]))
+
+
+def _python_files_for_scope(path: Path, root: Path | None) -> list[Path]:
+    if root is None:
+        return [path] if path.is_file() else sorted(path.rglob("*.py"))
+    return [
+        child
+        for child in sorted(root.rglob("*.py"))
+        if not any(part.startswith(".") for part in child.relative_to(root).parts)
+    ]
+
+
+def _location_from_symbol(symbol: dict[str, Any], file_path: Path) -> dict[str, Any]:
+    name = str(symbol["name"])
+    line = int(symbol.get("line", 1))
+    column = int(symbol.get("column", 1))
+    return {
+        "name": name,
+        "kind": str(symbol.get("kind", "symbol")),
+        "file": str(file_path),
+        "uri": file_path.as_uri(),
+        "line": line,
+        "column": column,
+        "endLine": line,
+        "endColumn": column + len(name),
+    }
+
+
+def _location_from_ast(symbol: str, kind: str, node: ast.AST, file_path: Path) -> dict[str, Any]:
+    line = int(getattr(node, "lineno", 1) or 1)
+    column = int(getattr(node, "col_offset", 0) or 0) + 1
+    end_line = int(getattr(node, "end_lineno", line) or line)
+    end_column = int(getattr(node, "end_col_offset", column) or column) + 1
+    return {
+        "name": symbol,
+        "kind": kind,
+        "file": str(file_path),
+        "uri": file_path.as_uri(),
+        "line": line,
+        "column": column,
+        "endLine": end_line,
+        "endColumn": end_column,
+    }
+
+
+def _label_definitions_from_text(text: str, file_path: Path) -> list[dict[str, Any]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    definitions: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        label = _gaia_label_value(node, tree)
+        if label:
+            definitions.append(_location_from_label(label, "label", node, file_path))
+    return definitions
+
+
+def _gaia_label_value(node: ast.AST, tree: ast.Module) -> str | None:
+    if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+        return None
+    parent = _parent_call_for_keyword_value(tree, node, "label")
+    if parent is None:
+        return None
+    imports = _ImportContext.from_tree(tree)
+    if imports.canonical_call_name(parent.func, allow_unimported=True) not in DOCUMENT_SYMBOL_CALLS:
+        return None
+    return str(node.value)
+
+
+def _parent_call_for_keyword_value(
+    tree: ast.Module,
+    target: ast.Constant,
+    keyword_name: str,
+) -> ast.Call | None:
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        if any(
+            keyword.arg == keyword_name and keyword.value is target
+            for keyword in call.keywords
+        ):
+            return call
+    return None
+
+
+def _location_from_label(
+    symbol: str,
+    kind: str,
+    node: ast.AST,
+    file_path: Path,
+) -> dict[str, Any]:
+    line = int(getattr(node, "lineno", 1) or 1)
+    column = int(getattr(node, "col_offset", 0) or 0) + 2
+    return {
+        "name": symbol,
+        "kind": kind,
+        "file": str(file_path),
+        "uri": file_path.as_uri(),
+        "line": line,
+        "column": column,
+        "endLine": line,
+        "endColumn": column + len(symbol),
+    }
+
+
+def _reference_locations_in_string(
+    symbol: str,
+    node: ast.Constant,
+    file_path: Path,
+    source_text: str,
+) -> list[dict[str, Any]]:
+    text = str(node.value)
+    locations: list[dict[str, Any]] = []
+    for match in re.finditer(rf"(?<!\\)@{re.escape(symbol)}\b", text):
+        line = int(getattr(node, "lineno", 1) or 1)
+        prefix = text[: match.start()]
+        relative_line = prefix.count("\n")
+        if relative_line:
+            line += relative_line
+            column = len(prefix.rsplit("\n", 1)[-1]) + 1
+        else:
+            column = (
+                int(getattr(node, "col_offset", 0) or 0)
+                + _string_content_start_offset(source_text, node)
+                + match.start()
+                + 1
+            )
+        locations.append(
+            {
+                "name": symbol,
+                "kind": "strict-reference",
+                "file": str(file_path),
+                "uri": file_path.as_uri(),
+                "line": line,
+                "column": column,
+                "endLine": line,
+                "endColumn": column + len(symbol) + 1,
+            }
+        )
+    return locations
+
+
+def _string_content_start_offset(source_text: str, node: ast.Constant) -> int:
+    segment = ast.get_source_segment(source_text, node) or ""
+    prefix = re.match(r"(?i)[rubf]*", segment)
+    quote_index = prefix.end() if prefix else 0
+    while quote_index < len(segment) and segment[quote_index] not in {"'", '"'}:
+        quote_index += 1
+    if quote_index >= len(segment):
+        return 0
+    quote = segment[quote_index]
+    delimiter = quote * 3 if segment.startswith(quote * 3, quote_index) else quote
+    return quote_index + len(delimiter)
+
+
 class _Analyzer(ast.NodeVisitor):
     def __init__(
         self,
@@ -360,6 +780,7 @@ class _Analyzer(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> Any:
         name = self.file_index.imports.canonical_call_name(node.func)
         if name is None:
+            self._check_unimported_gaia_call(node)
             self.generic_visit(node)
             return
 
@@ -422,6 +843,23 @@ class _Analyzer(ast.NodeVisitor):
         for arg in list(node.args) + [kw.value for kw in node.keywords if kw.value is not None]:
             self._collect_refs(arg)
         self.generic_visit(node)
+
+    def _check_unimported_gaia_call(self, node: ast.Call) -> None:
+        if not isinstance(node.func, ast.Name):
+            return
+        symbol = node.func.id
+        if symbol not in ALL_KNOWN_CALLS or symbol in self.file_index.bound_names:
+            return
+        import_stmt = preferred_import_for_symbol(symbol)
+        self.diagnostics.append(
+            diagnostic(
+                "GAIA015",
+                f"{symbol}() looks like Gaia DSL but is not imported; add `{import_stmt}`.",
+                "error",
+                node.func,
+                path=self.path,
+            )
+        )
 
     def _check_content_call(self, name: str, node: ast.Call) -> None:
         if not node.args or not _is_nonempty_string(node.args[0]):
@@ -1090,7 +1528,7 @@ class _Analyzer(ast.NodeVisitor):
 
 def _index_tree(tree: ast.Module) -> _FileIndex:
     imports = _ImportContext.from_tree(tree)
-    index = _FileIndex(imports=imports)
+    index = _FileIndex(imports=imports, bound_names=_top_level_bound_names(tree))
     for node in tree.body:
         value = _assignment_value(node)
         if not isinstance(value, ast.Call):
